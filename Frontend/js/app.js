@@ -635,9 +635,14 @@ function tarjetaTraspaso(o, escribir){
           <h3>Importarlo en Control de Proyecto</h3>
           <ol>
             <li>Entra al <strong>SBC</strong> que operará el contrato${o.sede_destino ? ' (<strong>' + esc(o.sede_destino) + '</strong>)' : ''}. El MASTER no opera obra.</li>
-            <li>Verifica que el cliente <strong>${esc(o.cliente_razon_social)}</strong> (RIF ${esc(o.cliente_rif || '—')}) esté registrado en <strong>Clientes (12)</strong>.</li>
-            <li>Crea el proyecto y abre <strong>Nuevo contrato</strong>; ${mod && mod.modalidad === 'suministro' ? 'modalidad <strong>orden de compra</strong>' : 'modalidad <strong>contrato de obra</strong>'}.</li>
-            <li>En <strong>Respaldo de oferta</strong> sube el archivo <span class="mono">${esc(o.codigo)}_traspaso_control_proyecto.json</span> y guarda.</li>
+            <li>En <strong>Clientes (12)</strong> verifica que exista <strong>${esc(o.cliente_razon_social)}</strong> con RIF <strong class="mono">${esc(o.cliente_rif || '—')}</strong>.</li>
+            <li>Elige o crea el proyecto y pulsa <strong>Nuevo contrato</strong>:
+              <strong>Empresa del contrato</strong> = ese cliente;
+              <strong>Tipo de contrato</strong> = ${mod && mod.modalidad === 'suministro'
+                ? '<em>Orden de compra (obra / valuación)</em>'
+                : '<em>Contrato</em> → clase <em>Contrato de obra (valuación)</em>, o <em>Orden de compra (obra / valuación)</em> si el cliente emitió una OC'};
+              <strong>Monto del contrato</strong> = el del documento firmado (referencia de la oferta: ${dinero(r2((o.total_precio || 0) * (1 + (o.iva_pct || 0) / 100)), o.moneda)} con IVA).</li>
+            <li>En <strong>Importar respaldo de oferta → Archivo de oferta</strong> sube <span class="mono">${esc(o.codigo)}_traspaso_control_proyecto.json</span> y pulsa <strong>Crear contrato</strong>. En Valuaciones aparecerán los frentes de la oferta.</li>
           </ol>
         </div></li>
         <li class="${vinculada ? 'hecho' : ''}"><div>

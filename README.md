@@ -24,32 +24,35 @@ Frontend/
   js/app.js · css/app.css · assets/logo-oriol.png
 Pruebas/
   e2e_flujo_oferta.js           recorrido completo en navegador (Playwright)
+  integracion_control_proyecto/ traspaso real importado en Control de Proyecto
+Instalacion/
+  LEEME.md · desarrollo/        levantar, detener, estado, ícono (mismo esquema que Control de Proyecto)
 Documentacion/
   ING-COT-003_Conexion_Cotizacion_Control_Proyecto.md
   FOR-COT-002_Archivo_Traspaso_Oferta_Ganada.md
   ejemplos/ORI-2026-09-001_traspaso_control_proyecto.json
 ```
 
-## Arranque (desarrollo)
+## Arranque local
 
 ```bash
-cd Backend
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env   # fija DATABASE_URL, SECRET_KEY (propia) e INITIAL_ADMIN_*
-set -a; . ./.env; set +a
-uvicorn app.main:app --reload --port 8100
-pytest -q
+Instalacion/desarrollo/levantar.sh                      # Sistema de Cotización: http://127.0.0.1:8090 (API :8100)
+Instalacion/desarrollo/levantar-con-control-proyecto.sh # + Control de Proyecto :8080 (API :8000), para probar el traspaso
+Instalacion/desarrollo/estado.sh
+Instalacion/desarrollo/detener.sh
+```
+
+La primera vez se crean `Backend/.venv` y `Backend/.env` (BD SQLite y `SECRET_KEY` propias) y el usuario **admin / CambiaEstoYa.1**; al entrar se pide cambiar la clave y activar el 2FA. Guía completa, prueba automática del traspaso y cómo reiniciar: [`Instalacion/LEEME.md`](Instalacion/LEEME.md).
+
+Pruebas del backend:
+
+```bash
+cd Backend && .venv/bin/pip install -r requirements-dev.txt && .venv/bin/pytest -q
 ```
 
 ## Frontend
 
-```bash
-cd Frontend && python3 -m http.server 8090
-# abrir http://127.0.0.1:8090/sistema_cotizacion.html
-```
-
-La URL del backend se fija en `window.COTIZACION_API_BASE` dentro de `sistema_cotizacion.html` (por defecto `http://127.0.0.1:8100`).
+`Instalacion/desarrollo/levantar.sh` lo sirve en :8090 e inyecta `config.js` para que apunte a la API del mismo host (también desde la LAN). Si se sirve de otra forma, la URL del backend se fija en `window.COTIZACION_API_BASE` (por defecto `http://127.0.0.1:8100`).
 
 La pantalla cubre:
 - **Inicio de sesión:** los pasos de `identity/` (clave temporal, 2FA "Oriol COT" y elección del escenario).
