@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.kernel.audit import registrar
+from app.kernel.config import settings
 from app.kernel.db import get_db
 from app.kernel.deps import client_ip, require_roles
 from app.kernel.models import Usuario
@@ -78,4 +79,13 @@ def cambiar_estado(oferta_id: str, body: OfertaEstadoIn, request: Request,
         detalle += f" modalidad={o.modalidad} facturacion={o.facturacion or '-'} total={o.total_precio}"
     registrar(db, usuario=usuario, accion=accion, entidad="oferta",
               entidad_id=o.codigo, ip=client_ip(request), detalle=detalle)
+    if o.estado == "ganada" and settings.mcp_configurado() and o.mcp_destino_id:
+        # El traspaso viaja por el MCP (ING-COT-003 §5). Si falla, la oferta
+        # sigue ganada: queda "error_envio" para reenviar o descargar a mano.
+        from app.conexion_control_proyecto import mcp
+        try:
+            mcp.enviar(db, o, usuario, client_ip(request))
+        except mcp.McpError:
+            pass
+        db.refresh(o)
     return o

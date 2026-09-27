@@ -30,6 +30,7 @@ router = APIRouter(prefix="/ofertas", tags=["conexion_control_proyecto"])
 
 ACCIONES_CONEXION = (
     "oferta_ganada", "traspaso_generado", "proyecto_vinculado", "proyecto_creacion_fallida",
+    "traspaso_mcp_enviado", "traspaso_mcp_entregado", "traspaso_mcp_recibido", "traspaso_mcp_error",
 )
 
 
@@ -118,3 +119,48 @@ def eventos_conexion(oferta_id: str, db: Session = Depends(get_db),
         }
         for e in filas
     ]
+
+
+# ---------------------------------------------------------------- MCP
+mcp_router = APIRouter(tags=["conexion_control_proyecto"])
+
+
+@mcp_router.get("/mcp/estado")
+def estado_mcp(_u: Usuario = Depends(require_roles(*ROLES_LECTURA))):
+    """Si el MCP está configurado y responde, con la lista de SBC destino."""
+    from app.kernel.config import settings
+    from app.conexion_control_proyecto import mcp
+    if not settings.mcp_configurado():
+        return {"configurado": False, "url": None, "ok": False, "destinos": [],
+                "detalle": "Sin MCP: define MCP_URL y MCP_TOKEN (nodo rol cotizacion del paso 28)."}
+    try:
+        return {"configurado": True, "url": settings.MCP_URL, "ok": True, "destinos": mcp.destinos()}
+    except mcp.McpError as e:
+        return {"configurado": True, "url": settings.MCP_URL, "ok": False, "destinos": [], "detalle": str(e)}
+
+
+@mcp_router.post("/ofertas/{oferta_id}/mcp/enviar", response_model=OfertaOut)
+def enviar_por_mcp(oferta_id: str, request: Request, db: Session = Depends(get_db),
+                   usuario: Usuario = Depends(require_roles(*ROLES_ESCRITURA))):
+    """Envía (o reenvía, p. ej. tras cambiar el SBC destino) la oferta ganada."""
+    from app.conexion_control_proyecto import mcp
+    o = oferta_ops.cargar_oferta(db, oferta_id, usuario, escritura=True)
+    _exigir_ganada(o)
+    try:
+        mcp.enviar(db, o, usuario, client_ip(request))
+    except mcp.McpError as e:
+        codigo = e.http_status if e.http_status in (404, 409, 422) else status.HTTP_502_BAD_GATEWAY
+        raise HTTPException(codigo, str(e))
+    db.refresh(o)
+    return o
+
+
+@mcp_router.post("/mcp/sincronizar")
+def sincronizar_mcp(db: Session = Depends(get_db),
+                    usuario: Usuario = Depends(require_roles(*ROLES_ESCRITURA))):
+    """Consulta ya los acuses del MCP (sin esperar el ciclo periódico)."""
+    from app.conexion_control_proyecto import mcp
+    try:
+        return mcp.sincronizar(db)
+    except mcp.McpError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))

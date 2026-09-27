@@ -4,3 +4,4 @@
 def montar(app):
     from app.conexion_control_proyecto import router
     app.include_router(router.router)
+    app.include_router(router.mcp_router)

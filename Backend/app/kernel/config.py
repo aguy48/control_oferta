@@ -87,6 +87,18 @@ class Settings:
     AMBIENTE: str = (_env("AMBIENTE", "") or "").strip().lower()
     STORAGE_DIR: str = _env("STORAGE_DIR", "./data")
 
+    # --- Traspaso por MCP (MASTER CONTROL PROJECT) ---
+    # El Sistema de Cotización es un nodo del MCP (rol "cotizacion", paso 28):
+    # publica ahí las ofertas ganadas y lee los acuses del SBC destino.
+    # Vacío = sin MCP (queda solo la descarga manual del traspaso).
+    MCP_URL: str = (_env("MCP_URL", "") or "").strip().rstrip("/")
+    MCP_TOKEN: str = (_env("MCP_TOKEN", "") or "").strip()
+    MCP_POLL_SECONDS: int = int(_env("MCP_POLL_SECONDS", "60"))
+    MCP_TIMEOUT_S: float = float(_env("MCP_TIMEOUT_S", "15"))
+
+    def mcp_configurado(self) -> bool:
+        return bool(self.MCP_URL and self.MCP_TOKEN)
+
     # 2FA obligatorio para admin/analista (REQUIRE_2FA=0 solo en el puesto local).
     REQUIRE_2FA: bool = (_env("REQUIRE_2FA", "true") or "true").lower() in ("1", "true", "yes", "si")
 

@@ -93,7 +93,9 @@ Control de Proyecto — lee/importa el archivo y crea/actualiza el proyecto
 - **Confirmación de recepción:** al no haber respuesta síncrona de un endpoint, hace falta otra forma de saber que Control de Proyecto sí levantó el proyecto — un archivo de confirmación que genere Control de Proyecto, un estado visible en algún panel, o una revisión periódica. Queda por definir junto con el mecanismo de entrega.
 - **Instancia destino — RESUELTO:** según `Documentacion/PARA_CLAUDE_arquitectura_nucleo_borde.md` de Control de Proyecto, *"El MASTER no opera obra… No hay ciclo contrato en el MASTER"*. El archivo se importa siempre en el **SBC (o núcleo)** que opera ese contrato. La oferta guarda `sede_destino` y lo manda en `origen.sede_destino`.
 
-**Mecanismo de entrega confirmado por el usuario: descarga + importación manual.** Cuando la oferta pasa a "Ganada", el Sistema de Cotización pone a disposición del analista/supervisor un botón para **descargar** el archivo de traspaso; esa persona lo lleva y lo **sube a mano** en una pantalla de importación de Control de Proyecto. No hay carpeta vigilada ni envío automático por correo.
+> **Actualización 2026-09-27 — el traspaso viaja por el MCP.** Por decisión del usuario, el traspaso entre aplicaciones va por el **MCP (MASTER CONTROL PROJECT)**. Es el centro SOC/NOC que ya gobierna a todos los SBC. La descarga + importación manual descrita más abajo queda solo como **contingencia**. Detalle en §9.
+
+**Mecanismo de entrega original (hoy solo contingencia): descarga + importación manual.** Cuando la oferta pasa a "Ganada", el Sistema de Cotización pone a disposición del analista/supervisor un botón para **descargar** el archivo de traspaso; esa persona lo lleva y lo **sube a mano** en una pantalla de importación de Control de Proyecto. No hay carpeta vigilada ni envío automático por correo.
 
 Esto simplifica algunas cosas y deja otras por resolver:
 - **Confirmación de recepción — implementada a mano:** la persona vuelve al Sistema de Cotización y registra el resultado:
@@ -173,6 +175,69 @@ Revisado `aguy48/oriol-control-de-proyecto`, commit `2d4b140`, versión 1.5.2.11
 3. **Documento final de la oferta (PDF/Word con marca ORIOL):** falta generarlo y guardarlo. Hoy se sube aparte como adjunto del contrato en Control de Proyecto.
 4. **Rol "supervisor":** no existe en `identity/`; hoy lo cubre `admin`. Si hace falta, se agrega como rol en ambas instancias.
 5. **PROC-COT-003** y la nota del manual de administrador (MAN-COT-001) sobre cuentas separadas.
+
+## 9. Traspaso por el MCP (mecanismo vigente)
+
+### 9.1 Por qué el MCP
+- El MCP (`mcp.oriol.support`, `APP_ROL=master`) ya es el punto que alcanzan todos los SBC.
+- Cada SBC **inicia** la conexión con un latido (`POST /nodos-sbc/latido`, cabecera `X-SBC-Token`), y en ese latido recibe los comandos que el MCP tiene en cola para él. Por eso funciona aunque la sede esté detrás de NAT o no tenga IP pública.
+- El traspaso usa ese mismo canal: el Sistema de Cotización nunca habla directamente con un SBC.
+
+### 9.2 Flujo
+
+```
+Sistema de Cotización (nodo rol "cotizacion")
+   │ oferta → Ganada, con SBC destino elegido
+   │ POST /nodos-sbc/traspasos      {destino_nodo_id, traspaso FOR-COT-002}
+   ▼
+MCP  — buzón traspasos_oferta; encola "importar_oferta" al SBC destino
+   ▼ (latido del SBC, cada 30 s, o "Buscar ahora")
+SBC  — GET /nodos-sbc/traspasos/{id} → bandeja "Ofertas recibidas del MCP" (Contrato 04)
+   │ acuse "recibido"
+   │ el analista pulsa "Crear contrato": formulario Nuevo contrato prellenado
+   │   (empresa por RIF, tipo, plazo) + la oferta se importa con el mismo
+   │   importador del respaldo por archivo; el servidor verifica y acusa "aceptado"
+   │   (o "rechazado" con motivo)
+   ▼
+MCP  — guarda el acuse (proyecto, contrato)
+   ▼ (Cotización consulta cada MCP_POLL_SECONDS, o "Consultar acuse")
+Sistema de Cotización — oferta vinculada automáticamente (vinculado_por = MCP)
+```
+
+### 9.3 Estados
+
+| Dónde | Estados |
+|---|---|
+| Buzón del MCP (`traspasos_oferta`) | `pendiente` → `entregado` → `recibido` → `aceptado` \| `rechazado` \| `error` |
+| Bandeja del SBC (`ofertas_recibidas`) | `recibida` → `aceptada` \| `rechazada` \| `anulada` (reasignada) |
+| Oferta en Cotización (`mcp_estado`) | el del buzón, más `error_envio` si no se pudo publicar |
+
+### 9.4 Reglas
+- **Idempotencia:** hay un traspaso por código de oferta.
+  - La misma huella no se reenvía.
+  - Una huella nueva (oferta corregida) o un destino nuevo crean una versión nueva, mientras la oferta no esté aceptada.
+  - Una oferta aceptada no se vuelve a publicar.
+  - El SBC tampoco deja aceptar una oferta que ya está en otro proyecto del escenario.
+- **Reasignación:** si se cambia el SBC destino, el SBC anterior ya no puede acusar (409) y su copia pasa a `anulada`.
+- **Sin enlace:** si el SBC no alcanza al MCP, su acuse queda pendiente y se reintenta en cada latido. Si Cotización no alcanza al MCP, la oferta queda en `error_envio`; se puede reenviar o recurrir a la contingencia.
+- **Autenticación:** todo va con el `X-SBC-Token` de cada nodo. Las cuentas de usuario siguen separadas (§6).
+- **El MCP no opera obra:** custodia y reenvía el archivo; el contrato se crea en el SBC.
+
+### 9.5 Dónde está el código
+
+| Pieza | Repositorio | Archivo |
+|---|---|---|
+| Buzón y rutas del MCP | oriol-control-de-proyecto | `Backend/app/plataforma/traspaso_mcp_ops.py`, `plataforma/routers/traspasos.py` |
+| Comando `importar_oferta`, bandeja, acuses | oriol-control-de-proyecto | `Backend/app/ciclo/ofertas_recibidas_ops.py`, `ciclo/routers/ofertas_recibidas.py`, `plataforma/respaldo_ops.py` |
+| Pantalla de la bandeja | oriol-control-de-proyecto | `js/control_de_proyecto_app.js` (botón «Ofertas recibidas del MCP» en Contrato) |
+| Cliente MCP, envío al ganar, acuses | control_oferta | `Backend/app/conexion_control_proyecto/mcp.py` |
+| Tarjeta de traspaso | control_oferta | `Frontend/js/app.js` |
+| Prueba integrada de los 3 nodos | control_oferta | `Pruebas/integracion_mcp/` |
+
+### 9.6 Configuración
+1. **MCP**, paso 28: dar de alta un nodo con rol **`cotizacion`** y copiar su token, que se muestra una sola vez. Cada SBC ya está enrolado con rol `sbc_app`.
+2. **Sistema de Cotización**, `Backend/.env`: definir `MCP_URL=https://mcp.oriol.support`, `MCP_TOKEN=<token>` y, opcionalmente, `MCP_POLL_SECONDS`.
+3. **En local**, `Instalacion/desarrollo/enrolar-mcp-local.sh` hace los pasos 1 y 2 contra el MCP :8001.
 
 ---
 *Documento de build (ING-COT-003) complementario a `ESQUEMATICO_SISTEMA_COTIZACION_ORIOL.md`, para que Cursor desarrolle la conexión entre el Sistema de Cotización y Control de Proyecto de ORIOL Consultores C.A. bajo metodología ATLAS (MET-002).*

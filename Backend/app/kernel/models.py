@@ -309,6 +309,16 @@ class Oferta(Base):
     vinculado_por = Column(String, nullable=True)
     traspasos_generados = Column(Integer, nullable=False, default=0)
 
+    # Traspaso por el MCP: SBC destino (id de nodo en el MCP) y último estado
+    # informado por el buzón (pendiente, entregado, recibido, aceptado,
+    # rechazado, error) o "error_envio" si no se pudo publicar.
+    mcp_destino_id = Column(String, nullable=True)
+    mcp_traspaso_id = Column(String, nullable=True)
+    mcp_version = Column(Integer, nullable=True)
+    mcp_estado = Column(String, nullable=True)
+    mcp_detalle = Column(Text, nullable=True)
+    mcp_actualizado_en = Column(DateTime(timezone=True), nullable=True)
+
     creado_en = Column(DateTime(timezone=True), default=now)
     creado_por = Column(String, nullable=True)
     actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)

@@ -3,6 +3,12 @@
 
 Formato oficial del archivo que el Sistema de Cotización genera cuando una oferta queda **Ganada** y que el analista sube a mano en Control de Proyecto. Mecanismo y decisiones: ING-COT-003.
 
+## 0. Cómo viaja
+- **Vía principal:** por el **MCP**, en el cuerpo de `POST /nodos-sbc/traspasos` (`{"destino_nodo_id": ..., "traspaso": <este JSON>}`). El SBC destino lo recibe en su bandeja. Ver ING-COT-003 §9.
+- **Contingencia:** descarga del archivo en el Sistema de Cotización y carga manual en el formulario Nuevo contrato de Control de Proyecto.
+
+El contenido es el mismo en los dos casos.
+
 ## 1. Base: el respaldo de oferta que Control de Proyecto ya importa
 
 El archivo **es** un `RESPALDO_OFERTA_CONTROL_PROYECTO_V1`. Es el mismo formato que Control de Proyecto ya acepta en el formulario de **Contrato** (campo "respaldo de oferta"):
@@ -64,11 +70,11 @@ En Control de Proyecto la valuación se desagrega **por frente**: cada `valuacio
 
 | Campo | Uso previsto en Control de Proyecto |
 |---|---|
-| `codigo_oferta` | Referencia cruzada guardada en el contrato. Si se sube dos veces, avisar. |
+| `codigo_oferta` | Clave del traspaso en el MCP (uno por oferta). Se guarda en el contrato (`codigo_oferta`), y el SBC avisa si ya está en otro proyecto. |
 | `cliente.rif` | Buscar la empresa en **Clientes** (el contrato exige cliente registrado; se identifica por RIF). |
 | `tipo_orden_sugerido` | Preseleccionar `tipo_orden`: `orden_compra` para suministro, `contrato_obra` para ejecución. |
 | `sede_destino` | Instancia donde debe importarse. Siempre un **SBC/núcleo**: el MASTER no opera obra. |
-| `huella_sha256` | SHA-256 de `frentes` + `resumen`. Detecta dos archivos del mismo código con datos distintos. |
+| `huella_sha256` | SHA-256 de `frentes` + `resumen`. Con la misma huella el MCP no reenvía; con una distinta crea una versión nueva. |
 
 ## 5. Ejemplo
 

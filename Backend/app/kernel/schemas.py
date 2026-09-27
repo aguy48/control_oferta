@@ -214,6 +214,8 @@ class OfertaCreate(BaseModel):
     iva_pct: int = Field(default=16, ge=0, le=100)
     semanas_totales: int | None = Field(default=None, ge=1)
     sede_destino: str | None = Field(default=None, max_length=120)
+    # Id del SBC destino en el MCP (GET /mcp/destinos).
+    mcp_destino_id: str | None = Field(default=None, max_length=80)
     notas: str | None = Field(default=None, max_length=4000)
 
 
@@ -229,6 +231,8 @@ class OfertaUpdate(BaseModel):
     iva_pct: int | None = Field(default=None, ge=0, le=100)
     semanas_totales: int | None = Field(default=None, ge=1)
     sede_destino: str | None = Field(default=None, max_length=120)
+    # Id del SBC destino en el MCP (GET /mcp/destinos).
+    mcp_destino_id: str | None = Field(default=None, max_length=80)
     notas: str | None = Field(default=None, max_length=4000)
 
 
@@ -264,6 +268,13 @@ class OfertaOut(BaseModel):
     contrato_cp_numero: str | None = None
     vinculado_en: dt.datetime | None = None
     traspasos_generados: int = 0
+    mcp_destino_id: str | None = None
+    mcp_traspaso_id: str | None = None
+    mcp_version: int | None = None
+    mcp_estado: str | None = None
+    mcp_detalle: str | None = None
+    mcp_actualizado_en: dt.datetime | None = None
+    vinculado_por: str | None = None
     total_precio: float = 0
     partidas: list[PartidaOut] = []
 

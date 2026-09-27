@@ -43,6 +43,7 @@ let actual = null;            // oferta seleccionada (respuesta del API)
 let partidasEdit = [];        // copia editable de las partidas
 let partidasSucias = false;
 let refreshTimer = null;
+let mcpEstado = {configurado: false, ok: false, destinos: []};  // GET /mcp/estado
 
 // ---------------------------------------------------------------- utilidades
 const $ = (id) => document.getElementById(id);
@@ -194,7 +195,13 @@ async function entrar(){
   $('b-nueva').classList.toggle('hidden', !puedeEscribir());
   clearInterval(refreshTimer);
   refreshTimer = setInterval(refrescar, 10 * 60 * 1000);
+  await cargarMcp();
   await cargarLista();
+}
+
+async function cargarMcp(){
+  try{ mcpEstado = await apiJson('/mcp/estado'); }
+  catch(e){ mcpEstado = {configurado: false, ok: false, destinos: [], detalle: e.message}; }
 }
 
 async function salir(silencioso){
@@ -415,7 +422,13 @@ function tarjetaDatos(o, escribir, cerrada){
         ${campo('moneda', 'Moneda', o.moneda, ed('moneda'), {attrs: ' maxlength="3"'})}
         ${campo('iva_pct', 'IVA (%)', o.iva_pct, ed('iva_pct'), {tipo: 'number', attrs: ' min="0" max="100"'})}
         ${campo('semanas_totales', 'Plazo total (semanas)', o.semanas_totales, ed('semanas_totales'), {tipo: 'number', attrs: ' min="1" placeholder="se calcula de las partidas"'})}
-        ${campo('sede_destino', 'Sede de Control de Proyecto (SBC)', o.sede_destino, ed('sede_destino'), {attrs: ' placeholder="SBC que opera el contrato"'})}
+        ${mcpEstado.configurado
+          ? campo('mcp_destino_id', 'SBC destino (por el MCP)', o.mcp_destino_id || '', ed('mcp_destino_id'),
+              {opciones: [['', mcpEstado.ok ? '— Elige el SBC —' : '— MCP sin conexión —']]
+                .concat((mcpEstado.destinos || []).map(d => [d.id, esc(d.nombre + (d.sitio_nombre ? ' · ' + d.sitio_nombre : '') + (d.estado && d.estado !== 'en_linea' ? ' (' + d.estado + ')' : ''))]))
+                .concat(o.mcp_destino_id && !(mcpEstado.destinos || []).some(d => d.id === o.mcp_destino_id)
+                  ? [[o.mcp_destino_id, esc(o.sede_destino || o.mcp_destino_id)]] : [])})
+          : campo('sede_destino', 'Sede de Control de Proyecto (SBC)', o.sede_destino, ed('sede_destino'), {attrs: ' placeholder="SBC que opera el contrato"'})}
         ${campo('notas', 'Notas', o.notas, ed('notas'), {tipo: 'textarea', clase: 'span2'})}
       </form>
     </div>`;
@@ -435,6 +448,10 @@ function enlazarDatos(o, cerrada){
       else if(k === 'moneda') body[k] = v.toUpperCase();
       else body[k] = v === '' ? null : v;
     });
+    if('mcp_destino_id' in body){
+      const d = (mcpEstado.destinos || []).find(x => x.id === body.mcp_destino_id);
+      body.sede_destino = d ? d.nombre : null;
+    }
     if(!Object.keys(body).length){ toast('No hay cambios que guardar.'); return; }
     try{
       actual = await apiJson('/ofertas/' + o.id, {method: 'PATCH', body: JSON.stringify(body)});
@@ -615,14 +632,73 @@ function enlazarPartidas(){
 }
 
 // ---------------------------------------------------------------- traspaso
+// Estados del buzón del MCP (plataforma/traspaso_mcp_ops.py en Control de Proyecto).
+const ETQ_MCP = {
+  pendiente: ['En el MCP', 'Esperando el próximo latido del SBC destino.', 'info'],
+  entregado: ['Entregado al SBC', 'El SBC la bajó; aún no confirma que está en su bandeja.', 'info'],
+  recibido: ['En la bandeja del SBC', 'Espera que un analista cree el contrato con esta oferta.', 'warn'],
+  aceptado: ['Aceptada en el SBC', 'El contrato quedó creado con la oferta importada.', 'ok'],
+  rechazado: ['Rechazada por el SBC', '', 'bad'],
+  error: ['Error en el SBC', '', 'bad'],
+  error_envio: ['No se pudo enviar', '', 'bad'],
+};
+
 function tarjetaTraspaso(o, escribir){
   const mod = MODALIDADES.find(m => m.id === modalidadActual(o));
   const vinculada = !!o.proyecto_cp_id;
   const descargado = (o.traspasos_generados || 0) > 0;
+  const chip = vinculada ? '<span class="chip" style="background:var(--good-tint);color:var(--good)">Vinculada</span>' : '';
+  const manual = pasosManuales(o, escribir, mod, vinculada, descargado);
+  if(!mcpEstado.configurado){
+    return `<div class="card" style="border-color:var(--naranja)">
+      <div class="card-head"><h2>Traspaso a Control de Proyecto</h2>${chip}</div>
+      <div class="aviso warn small" style="margin-bottom:12px">El MCP no está configurado en esta instancia: el traspaso se hace descargando el archivo.</div>
+      ${manual}</div>`;
+  }
+  const est = ETQ_MCP[o.mcp_estado] || null;
+  const destino = (mcpEstado.destinos || []).find(d => d.id === o.mcp_destino_id);
+  const nomDestino = (destino && destino.nombre) || o.sede_destino || '';
+  const enviado = !!o.mcp_traspaso_id;
+  const recibido = ['recibido', 'aceptado', 'rechazado'].includes(o.mcp_estado);
   return `
     <div class="card" style="border-color:var(--naranja)">
-      <div class="card-head"><h2>Traspaso a Control de Proyecto</h2>
-        ${vinculada ? '<span class="chip" style="background:var(--good-tint);color:var(--good)">Vinculada</span>' : ''}</div>
+      <div class="card-head"><h2>Traspaso a Control de Proyecto por el MCP</h2>${chip}</div>
+      ${!mcpEstado.ok ? `<div class="aviso warn small" style="margin-bottom:12px">Sin conexión con el MCP: ${esc(mcpEstado.detalle || '')}</div>` : ''}
+      <ol class="pasos">
+        <li class="${enviado && o.mcp_estado !== 'error_envio' ? 'hecho' : ''}"><div>
+          <h3>Enviar al SBC${nomDestino ? ' «' + esc(nomDestino) + '»' : ''}</h3>
+          ${!o.mcp_destino_id ? '<p class="small" style="margin:0 0 8px">Elige el <strong>SBC destino</strong> en «Datos de la oferta» y guarda.</p>' : ''}
+          ${est ? `<div class="aviso ${est[2]} small" style="margin-bottom:8px"><strong>${esc(est[0])}</strong>${o.mcp_version > 1 ? ' · versión ' + esc(o.mcp_version) : ''} · ${fecha(o.mcp_actualizado_en)}
+             ${est[1] ? '<br>' + esc(est[1]) : ''}${o.mcp_detalle ? '<br>' + esc(o.mcp_detalle) : ''}</div>` : ''}
+          <div class="acciones">
+            ${escribir && o.mcp_destino_id && o.mcp_estado !== 'aceptado'
+              ? `<button class="btn naranja sm" id="b-mcp-enviar">${enviado ? 'Reenviar por el MCP' : 'Enviar por el MCP'}</button>` : ''}
+            ${enviado && o.mcp_estado !== 'aceptado' && o.mcp_estado !== 'rechazado' && escribir
+              ? '<button class="btn ghost sm" id="b-mcp-sinc">Consultar acuse</button>' : ''}
+          </div>
+        </div></li>
+        <li class="${recibido ? 'hecho' : ''}"><div>
+          <h3>Recepción en el SBC</h3>
+          <p class="small" style="margin:0">En el SBC, pestaña <strong>Contrato (04) → Ofertas recibidas del MCP</strong>: el analista pulsa
+            <strong>Crear contrato</strong>, completa número, tipo y monto del documento firmado y guarda. La oferta se importa sola.</p>
+        </div></li>
+        <li class="${vinculada ? 'hecho' : ''}"><div>
+          <h3>Vinculación</h3>
+          ${vinculada ? `<div class="aviso ok small">Proyecto <strong class="mono">${esc(o.proyecto_cp_id)}</strong>
+             ${o.contrato_cp_numero ? '· contrato <strong class="mono">' + esc(o.contrato_cp_numero) + '</strong>' : ''} · ${fecha(o.vinculado_en)}
+             ${o.vinculado_por === 'MCP' ? ' · confirmado por el MCP' : ''}</div>`
+            : '<p class="small muted" style="margin:0">Se completa sola cuando el SBC acepta la oferta.</p>'}
+        </div></li>
+      </ol>
+      <details style="margin-top:14px">
+        <summary class="small" style="cursor:pointer;color:var(--morado);font-weight:600">Contingencia: sin conexión con el MCP (descarga manual)</summary>
+        <div style="margin-top:12px">${manual}</div>
+      </details>
+    </div>`;
+}
+
+function pasosManuales(o, escribir, mod, vinculada, descargado){
+  return `
       <ol class="pasos">
         <li class="${descargado ? 'hecho' : ''}"><div>
           <h3>Descargar el archivo</h3>
@@ -659,8 +735,7 @@ function tarjetaTraspaso(o, escribir){
             </div>
           </form>` : ''}
         </div></li>
-      </ol>
-    </div>`;
+      </ol>`;
 }
 
 function nombreDeDisposition(h, defecto){
@@ -669,6 +744,24 @@ function nombreDeDisposition(h, defecto){
 }
 
 function enlazarTraspaso(o){
+  const be = $('b-mcp-enviar');
+  if(be) be.addEventListener('click', async () => {
+    be.disabled = true;
+    try{
+      actual = await apiJson('/ofertas/' + o.id + '/mcp/enviar', {method: 'POST'});
+      toast('Oferta enviada al MCP.');
+    }catch(e){ toast(e.message, true); }
+    await cargarLista(o.id);
+  });
+  const bs = $('b-mcp-sinc');
+  if(bs) bs.addEventListener('click', async () => {
+    bs.disabled = true;
+    try{
+      const r = await apiJson('/mcp/sincronizar', {method: 'POST'});
+      toast(r.cambios ? 'Hay novedades del SBC.' : 'Sin cambios todavía.');
+    }catch(e){ toast(e.message, true); }
+    await cargarLista(o.id);
+  });
   const bd = $('b-descargar');
   if(bd) bd.addEventListener('click', async () => {
     try{
@@ -712,7 +805,8 @@ function enlazarTraspaso(o){
 const ETQ_ACCION = {
   oferta_creada: 'Creada', oferta_actualizada: 'Datos', oferta_partidas: 'Partidas', oferta_estado: 'Estado',
   oferta_ganada: 'Ganada', traspaso_generado: 'Traspaso', proyecto_vinculado: 'Vinculada',
-  proyecto_creacion_fallida: 'Import. fallida',
+  proyecto_creacion_fallida: 'Import. fallida', traspaso_mcp_enviado: 'Enviada al MCP',
+  traspaso_mcp_entregado: 'Entregada al SBC', traspaso_mcp_recibido: 'En bandeja SBC', traspaso_mcp_error: 'Error MCP',
 };
 async function cargarEventos(o){
   const ul = $('eventos');

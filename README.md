@@ -4,7 +4,7 @@ Ofertas comerciales y traspaso de las ofertas **ganadas** a **Control de Proyect
 
 - **Instancia propia:** base de datos, `SECRET_KEY` y cuentas de usuario separadas de Control de Proyecto (ING-COT-003 §6).
 - **Mismo código de identidad:** reutiliza `identity/` de Control de Proyecto sin cambios.
-- **Integración por archivo:** una oferta ganada se descarga como JSON (FOR-COT-002) y se sube a mano en el formulario de Contrato de Control de Proyecto. No hay llamadas de red entre las dos instancias.
+- **Traspaso por el MCP:** una oferta ganada se publica en el MASTER CONTROL PROJECT dirigida al SBC que operará el contrato. Allí llega a la bandeja *Ofertas recibidas del MCP* y el acuse vuelve solo. Sin MCP queda la descarga manual del archivo (FOR-COT-002). Ver ING-COT-003 §9.
 
 ## Estructura
 
@@ -24,7 +24,8 @@ Frontend/
   js/app.js · css/app.css · assets/logo-oriol.png
 Pruebas/
   e2e_flujo_oferta.js           recorrido completo en navegador (Playwright)
-  integracion_control_proyecto/ traspaso real importado en Control de Proyecto
+  integracion_mcp/              traspaso por el MCP entre los tres nodos (Cotización → MCP → SBC → acuse)
+  integracion_control_proyecto/ contingencia: archivo importado a mano en Control de Proyecto
 Instalacion/
   LEEME.md · desarrollo/        levantar, detener, estado, ícono (mismo esquema que Control de Proyecto)
 Documentacion/
@@ -37,7 +38,8 @@ Documentacion/
 
 ```bash
 Instalacion/desarrollo/levantar.sh                      # Sistema de Cotización: http://127.0.0.1:8090 (API :8100)
-Instalacion/desarrollo/levantar-con-control-proyecto.sh # + Control de Proyecto :8080 (API :8000), para probar el traspaso
+Instalacion/desarrollo/levantar-con-control-proyecto.sh # + Control de Proyecto (SBC :8000) y MCP (:8001)
+Instalacion/desarrollo/enrolar-mcp-local.sh             # una vez: enlaza SBC y Cotización al MCP local
 Instalacion/desarrollo/estado.sh
 Instalacion/desarrollo/detener.sh
 ```
@@ -84,6 +86,9 @@ Los roles de solo lectura (auditor, o un escenario de solo lectura) ven la ofert
 | POST | `/ofertas/{id}/vinculacion` | admin, analista | Registra el proyecto y el contrato creados en Control de Proyecto. |
 | POST | `/ofertas/{id}/importacion-fallida` | admin, analista | Registra que la importación en Control de Proyecto falló. |
 | GET | `/ofertas/{id}/eventos` | lectura | Bitácora de la oferta y de la conexión. |
+| GET | `/mcp/estado` | lectura | Si hay MCP configurado y la lista de SBC destino. |
+| POST | `/ofertas/{id}/mcp/enviar` | admin, analista | Envía o reenvía la oferta ganada por el MCP (al ganar se envía sola si tiene `mcp_destino_id`). |
+| POST | `/mcp/sincronizar` | admin, analista | Lee ya los acuses del MCP (también corre cada `MCP_POLL_SECONDS`). |
 
 Autenticación: `/auth/*`, `/usuarios` y `/escenarios`, igual que en Control de Proyecto.
 

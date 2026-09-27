@@ -21,7 +21,7 @@ ROLES_ESCRITURA = ("admin", "analista")
 ESTADOS_CERRADOS = ("ganada", "perdida", "anulada")
 # Campos que siguen editables con la oferta ganada: no cambian el contenido
 # económico del traspaso.
-EDITABLES_CERRADA = {"sede_destino", "notas", "cliente_contacto"}
+EDITABLES_CERRADA = {"sede_destino", "mcp_destino_id", "notas", "cliente_contacto"}
 
 
 def generar_codigo(db: Session, cuando: dt.datetime | None = None) -> str:

@@ -12,5 +12,7 @@ echo "Cotización API :${API_PORT}            $(api "http://127.0.0.1:${API_PORT
 echo "Cotización HTML :${WEB_PORT}           $(html "http://127.0.0.1:${WEB_PORT}/sistema_cotizacion.html")"
 echo "Control de Proyecto API :8000   $(api http://127.0.0.1:8000/health)"
 echo "Control de Proyecto HTML :8080  $(html http://127.0.0.1:8080/control_de_proyecto_app.html)"
+echo "MCP (MASTER) API :8001          $(api http://127.0.0.1:8001/health)"
+echo "MCP (MASTER) HTML :8081         $(html http://127.0.0.1:8081/master_control_project.html)"
 [[ -n "$LAN" ]] && echo "LAN Cotización  http://${LAN}:${WEB_PORT}/sistema_cotizacion.html"
 exit 0
