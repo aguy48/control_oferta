@@ -19,6 +19,11 @@ Backend/
     conexion_control_proyecto/  archivo de traspaso, vinculación y eventos
   tests/
   herramientas/sincronizar_identity.sh
+Frontend/
+  sistema_cotizacion.html       aplicación (HTML + JS sin compilación, igual que Control de Proyecto)
+  js/app.js · css/app.css · assets/logo-oriol.png
+Pruebas/
+  e2e_flujo_oferta.js           recorrido completo en navegador (Playwright)
 Documentacion/
   ING-COT-003_Conexion_Cotizacion_Control_Proyecto.md
   FOR-COT-002_Archivo_Traspaso_Oferta_Ganada.md
@@ -36,6 +41,33 @@ set -a; . ./.env; set +a
 uvicorn app.main:app --reload --port 8100
 pytest -q
 ```
+
+## Frontend
+
+```bash
+cd Frontend && python3 -m http.server 8090
+# abrir http://127.0.0.1:8090/sistema_cotizacion.html
+```
+
+La URL del backend se fija en `window.COTIZACION_API_BASE` dentro de `sistema_cotizacion.html` (por defecto `http://127.0.0.1:8100`).
+
+La pantalla cubre:
+- **Inicio de sesión:** los pasos de `identity/` (clave temporal, 2FA "Oriol COT" y elección del escenario).
+- **Ofertas:** lista con filtro por estado y alta de ofertas.
+- **Oferta abierta:**
+  - datos generales;
+  - selector de modalidad (suministro, ejecución resumida o ejecución detallada), que explica qué se crea en Control de Proyecto;
+  - editor de partidas con subtotales por disciplina, IVA y total;
+  - botones de cambio de estado.
+- **Traspaso** (visible con la oferta ganada):
+  1. **Descargar traspaso**;
+  2. instrucciones para importarlo en el SBC;
+  3. registro de la vinculación o del fallo.
+- **Bitácora** de la oferta.
+
+Los roles de solo lectura (auditor, o un escenario de solo lectura) ven la oferta sin controles de edición.
+
+**Prueba en navegador:** con el backend recién creado en :8100 y el frontend en :8090, ejecuta `node Pruebas/e2e_flujo_oferta.js <carpeta_capturas>`.
 
 ## API de ofertas
 

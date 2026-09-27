@@ -120,13 +120,13 @@ Implicaciones concretas para Cursor:
 ## 7. Checklist de implementación para Cursor
 
 1. [x] Leer el código real de Control de Proyecto y localizar dónde/cómo se crea hoy un proyecto/obra (manual) y cómo se modela una valuación por disciplina dentro de un mismo proyecto (§4), para no inventar un contrato de datos que no calce con el modelo real.
-2. [x] (backend; falta la pantalla) Agregar los campos `modalidad` y `facturacion` a `ofertas` (§4) y el control en el constructor de oferta para que el analista/supervisor los fije.
+2. [x] Agregar los campos `modalidad` y `facturacion` a `ofertas` (§4) y el control en el constructor de oferta para que el analista/supervisor los fije.
 3. [x] Levantar la instancia nueva del Sistema de Cotización reutilizando el código de `identity/` con su propio `DATABASE_URL`/`SECRET_KEY` (§6) — sin lógica de sesión compartida con Control de Proyecto.
-4. [~] (backend listo: `GET /ofertas/{id}/traspaso`; faltan el botón y la mejora de lectura en Control de Proyecto; destino resuelto: SBC/núcleo) Construir el botón de descarga del archivo de traspaso en el Sistema de Cotización (visible cuando la oferta está "Ganada") y, del lado de Control de Proyecto, la pantalla de importación manual que lo lee y crea el proyecto — confirmar con el usuario a cuál instancia (MASTER o un SBC específico) debe apuntar esa pantalla.
+4. [~] (Sistema de Cotización listo: botón **Descargar traspaso**; falta la mejora de lectura de `origen` en Control de Proyecto, ver §8.3; destino resuelto: SBC/núcleo) Construir el botón de descarga del archivo de traspaso en el Sistema de Cotización (visible cuando la oferta está "Ganada") y, del lado de Control de Proyecto, la pantalla de importación manual que lo lee y crea el proyecto — confirmar con el usuario a cuál instancia (MASTER o un SBC específico) debe apuntar esa pantalla.
 5. [x] (a mano: `POST /ofertas/{id}/vinculacion`) Definir cómo se marca de vuelta en el Sistema de Cotización que una oferta ya quedó vinculada a un proyecto (¿a mano, con el id/código que devuelve la importación, o se deja para una fase posterior?) — ver nota de confirmación de recepción en §5.
 6. [x] Implementar en el Sistema de Cotización el módulo `conexion_control_proyecto/` que genera el archivo de traspaso según la modalidad, con el código de oferta en el nombre para trazabilidad e idempotencia (§5).
 7. [x] (`ofertas.proyecto_cp_id` y `contrato_cp_numero`) Guardar en la oferta la referencia cruzada al proyecto creado (id/código) para trazabilidad bidireccional.
-8. [~] (bitácora y `GET /ofertas/{id}/eventos` listos; falta el panel) Registrar el evento `oferta_ganada` → `proyecto_creado` (o `proyecto_creacion_fallida`) en la bitácora de eventos (§5.12 del esquemático) y exponerlo en el panel de monitoreo.
+8. [x] (bitácora, `GET /ofertas/{id}/eventos` y panel "Bitácora de la oferta" en el frontend) Registrar el evento `oferta_ganada` → `proyecto_creado` (o `proyecto_creacion_fallida`) en la bitácora de eventos (§5.12 del esquemático) y exponerlo en el panel de monitoreo.
 9. [ ] Escribir el procedimiento (PROC-COT-003) que documente, para el equipo, qué pasa exactamente cuando se marca una oferta como Ganada, incluyendo cómo elegir la modalidad correcta, cómo descargar/subir el archivo de traspaso, y cómo dar de alta a un analista que necesite cuenta en ambos sistemas.
 
 ## 8. Hallazgos en el código de Control de Proyecto e implementación (2026-09-27)
@@ -169,7 +169,7 @@ Revisado `aguy48/oriol-control-de-proyecto`, commit `2d4b140`, versión 1.5.2.11
    - preseleccionar `tipo_orden`;
    - guardar `codigo_oferta` en el contrato y avisar si ese código ya se importó en el escenario;
    - registrar `oferta_importada` en la bitácora.
-2. **Frontend del Sistema de Cotización:** constructor de oferta (con el selector de modalidad y facturación), botón **Descargar traspaso** y formulario de vinculación.
+2. ~~Frontend del Sistema de Cotización~~ — hecho: `Frontend/sistema_cotizacion.html`, con recorrido completo probado en navegador (`Pruebas/e2e_flujo_oferta.js`).
 3. **Documento final de la oferta (PDF/Word con marca ORIOL):** falta generarlo y guardarlo. Hoy se sube aparte como adjunto del contrato en Control de Proyecto.
 4. **Rol "supervisor":** no existe en `identity/`; hoy lo cubre `admin`. Si hace falta, se agrega como rol en ambas instancias.
 5. **PROC-COT-003** y la nota del manual de administrador (MAN-COT-001) sobre cuentas separadas.

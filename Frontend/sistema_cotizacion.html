@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Cotización — ORIOL</title>
+<link rel="stylesheet" href="css/app.css">
+<script>
+  // URL del backend de ESTA instancia (no la de Control de Proyecto).
+  window.COTIZACION_API_BASE = window.COTIZACION_API_BASE || 'http://127.0.0.1:8100';
+</script>
+</head>
+<body>
+
+<!-- ============ Inicio de sesión (identity/ de Control de Proyecto) ============ -->
+<div id="login" class="overlay">
+  <div class="login-box">
+    <img class="logo" src="assets/logo-oriol.png" alt="ORIOL Continuidad 24/7">
+    <h1>Sistema de Cotización</h1>
+    <div class="version" id="login-version"></div>
+
+    <form id="f-login" class="acciones" style="flex-direction:column;align-items:stretch;gap:12px">
+      <label>Usuario<input id="l-usuario" autocomplete="username" required></label>
+      <label>Contraseña<input id="l-password" type="password" autocomplete="current-password" required></label>
+      <label id="l-totp-wrap" class="hidden">Código de verificación (6 dígitos)
+        <input id="l-totp" inputmode="numeric" autocomplete="one-time-code" maxlength="7">
+      </label>
+      <button class="btn" id="l-btn">Entrar</button>
+    </form>
+
+    <form id="f-cambio" class="hidden acciones" style="flex-direction:column;align-items:stretch;gap:12px">
+      <div class="aviso warn">Tu contraseña es temporal. Define una nueva para continuar.</div>
+      <label>Nueva contraseña (mínimo 8 caracteres)<input id="c-nueva" type="password" minlength="8" autocomplete="new-password" required></label>
+      <label>Repite la nueva contraseña<input id="c-repite" type="password" minlength="8" autocomplete="new-password" required></label>
+      <button class="btn">Cambiar y continuar</button>
+    </form>
+
+    <form id="f-2fa" class="hidden acciones" style="flex-direction:column;align-items:stretch;gap:12px">
+      <div class="aviso info small">Tu rol requiere verificación en dos pasos. Escanea el código con tu app autenticadora; la cuenta aparece como «Oriol COT». Es una cuenta distinta de la de Control de Proyecto.</div>
+      <img class="qr" id="t-qr" alt="Código QR del 2FA">
+      <div class="small muted" style="text-align:center">Clave manual: <span class="mono" id="t-secret"></span></div>
+      <label>Código de la app<input id="t-codigo" inputmode="numeric" maxlength="7" required></label>
+      <button class="btn">Activar y continuar</button>
+    </form>
+
+    <div id="p-escenario" class="hidden">
+      <h3 style="margin-bottom:8px">Elige el escenario de trabajo</h3>
+      <div class="lista-esc" id="esc-lista"></div>
+    </div>
+
+    <div class="error" id="login-error" role="alert"></div>
+  </div>
+</div>
+
+<!-- ============ Aplicación ============ -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <img class="logo" src="assets/logo-oriol.png" alt="ORIOL Continuidad 24/7">
+    <div class="titulo">
+      <h1>Sistema de Cotización</h1>
+      <div class="small muted" id="esc-actual"></div>
+    </div>
+    <div class="userbar">
+      <span id="u-nombre"></span><span class="chip" id="u-rol"></span>
+      <button class="btn ghost sm" id="b-salir">Salir</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card">
+      <div class="card-head">
+        <h2>Ofertas</h2>
+        <button class="btn naranja sm" id="b-nueva">+ Nueva</button>
+      </div>
+      <div class="filtro">
+        <select id="f-estado" aria-label="Filtrar por estado">
+          <option value="">Todos los estados</option>
+          <option value="borrador">Borrador</option>
+          <option value="enviada">Enviada</option>
+          <option value="en_negociacion">En negociación</option>
+          <option value="ganada">Ganada</option>
+          <option value="perdida">Perdida</option>
+          <option value="anulada">Anulada</option>
+        </select>
+      </div>
+      <ul class="ofertas" id="lista"></ul>
+    </section>
+
+    <section id="detalle">
+      <div class="card vacio" id="sin-seleccion">Selecciona una oferta o crea una nueva.</div>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="js/app.js"></script>
+</body>
+</html>
