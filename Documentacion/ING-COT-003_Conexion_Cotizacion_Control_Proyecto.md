@@ -20,7 +20,9 @@ En el Sistema de Cotización, el punto de enganche es la transición de estado d
 1. Se registra como evento en `eventos/` (§5.12 del esquemático) — `tipo: "oferta_ganada"`.
 2. Dispara la generación del archivo de traspaso hacia Control de Proyecto (ver §5) — no una llamada de red en vivo, porque no debe asumirse que ambos sistemas están en la misma red.
 
-**Tarea previa obligatoria para Cursor antes de programar nada:** localizar en el repositorio real de Control de Proyecto el módulo y el endpoint (o la función de servicio) donde hoy se crea un proyecto/obra manualmente, tal como se hizo en trabajo previo sobre ese mismo repositorio (ej. `Backend/app/ciclo/...` o el módulo equivalente). Este documento describe el contrato de datos y el flujo; **no asume rutas de archivo de Control de Proyecto que no se hayan verificado en el código real**, porque esta sesión no tiene ese repositorio cargado.
+**Tarea previa — RESUELTA (2026-09-27, ver §8):**
+- **Alta del proyecto:** `POST /proyectos` → `crear_proyecto()` en `Backend/app/ciclo/proyecto_ops.py`.
+- **Carga de la oferta dentro del proyecto:** no la hace el backend. La hace el formulario de **Contrato** del frontend, importando un *respaldo de oferta* (`js/control_de_proyecto_app.js`: `importarOfertaEnContrato`).
 
 ## 3. Qué información viaja de la oferta al proyecto
 
@@ -57,7 +59,16 @@ El analista/supervisor fija esta modalidad al momento de aprobar la oferta (o an
 2. un proyecto único con una valuación consolidada (`ejecucion` + `resumida`), o
 3. un proyecto con valuación/estructura por disciplina (`ejecucion` + `detallada`).
 
-**Sigue pendiente de verificar en el código real de Control de Proyecto:** cómo se modela hoy ahí una "valuación por disciplina" dentro de un mismo proyecto — si son sub-proyectos, fases o simplemente líneas dentro de una sola valuación — porque de eso depende la estructura exacta del archivo para los casos 2 y 3. Esta verificación es la tarea 1 del checklist (§7).
+**Verificado en el código de Control de Proyecto:** la "valuación por disciplina" no son subproyectos ni fases. Es el **frente**:
+- cada valuación (`ctrl.valuaciones[]`) lleva `contrato_id` y `frente_label`;
+- la lista de frentes sale de `master.frentes[]` (la oferta importada); sin oferta solo existe `GLOBAL`.
+
+Por lo tanto:
+- caso 1 (suministro) → un solo frente `SUMINISTRO`;
+- caso 2 (resumida) → un solo frente `GLOBAL`;
+- caso 3 (detallada) → un frente por disciplina.
+
+Detalle en FOR-COT-002 §3.
 
 ## 5. Mecanismo técnico de integración (por archivo, no por red en vivo)
 
@@ -77,16 +88,18 @@ Control de Proyecto — lee/importa el archivo y crea/actualiza el proyecto
         │  el proyecto queda con la referencia al código de oferta que trae el archivo
 ```
 
-- **Formato del archivo:** JSON estructurado es lo más simple de generar y de parsear (y encaja con el patrón FOR de ATLAS si se documenta como formato oficial — FOR-COT-002). Verificar primero en el código real si Control de Proyecto ya tiene alguna rutina de importación de proyectos por archivo, para no inventar un formato que no calce con lo que ya sabe leer.
+- **Formato del archivo — RESUELTO:** Control de Proyecto **ya importa ofertas por archivo**, en el formato `RESPALDO_OFERTA_CONTROL_PROYECTO_V1` (JSON con `meta`, `resumen`, `frentes[]` y `cronograma[]`). El traspaso usa ese mismo formato más un bloque adicional `origen`. Queda documentado como **FOR-COT-002** (`Documentacion/FOR-COT-002_Archivo_Traspaso_Oferta_Ganada.md`).
 - **Trazabilidad e idempotencia:** el nombre del archivo debe incluir el código de oferta (`ORI-AAAA-MM-NNN`), para saber cuál oferta lo originó y para que Control de Proyecto no cree el mismo proyecto dos veces si el archivo se procesa más de una vez.
 - **Confirmación de recepción:** al no haber respuesta síncrona de un endpoint, hace falta otra forma de saber que Control de Proyecto sí levantó el proyecto — un archivo de confirmación que genere Control de Proyecto, un estado visible en algún panel, o una revisión periódica. Queda por definir junto con el mecanismo de entrega.
-- **Punto todavía sin resolver, aparte de la identidad:** a qué instancia de Control de Proyecto le corresponde el archivo — ¿siempre a MASTER, o al SBC de la sede/obra de esa oferta? Se resuelve junto con el mecanismo de entrega.
+- **Instancia destino — RESUELTO:** según `Documentacion/PARA_CLAUDE_arquitectura_nucleo_borde.md` de Control de Proyecto, *"El MASTER no opera obra… No hay ciclo contrato en el MASTER"*. El archivo se importa siempre en el **SBC (o núcleo)** que opera ese contrato. La oferta guarda `sede_destino` y lo manda en `origen.sede_destino`.
 
 **Mecanismo de entrega confirmado por el usuario: descarga + importación manual.** Cuando la oferta pasa a "Ganada", el Sistema de Cotización pone a disposición del analista/supervisor un botón para **descargar** el archivo de traspaso; esa persona lo lleva y lo **sube a mano** en una pantalla de importación de Control de Proyecto. No hay carpeta vigilada ni envío automático por correo.
 
 Esto simplifica algunas cosas y deja otras por resolver:
-- **Confirmación de recepción:** al ser una importación manual, Control de Proyecto puede confirmar de inmediato en su propia pantalla si el archivo se procesó bien o no (éxito/error visible ahí mismo) — pero el Sistema de Cotización no se entera automáticamente. Hay que decidir si la persona vuelve al Sistema de Cotización a marcar la oferta como "vinculada" (con el id/código del proyecto creado, a mano) o si esto se deja como una mejora de fase posterior.
-- **A quién de Control de Proyecto le corresponde:** sigue sin definirse si el archivo se sube siempre a MASTER o al SBC de la sede/obra correspondiente — lo decide, en la práctica, quien hace la importación, salvo que se agregue una validación en el archivo mismo (ej. un campo que indique la sede).
+- **Confirmación de recepción — implementada a mano:** la persona vuelve al Sistema de Cotización y registra el resultado:
+  - `POST /ofertas/{id}/vinculacion` con el id del proyecto y el número de contrato de Control de Proyecto, o
+  - `POST /ofertas/{id}/importacion-fallida` con el motivo.
+- **A quién de Control de Proyecto le corresponde:** al SBC o núcleo indicado en `sede_destino` (ver arriba), nunca al MASTER.
 
 - **Dirección inversa (opcional, fase posterior):** Control de Proyecto podría, más adelante, generar su propio archivo (o notificación) con hitos de ejecución (ej. "proyecto cerrado") para que el Sistema de Cotización lo importe y refleje el estado real en su CRM (§5.6 del esquemático) más allá de "Ganada". No es parte del alcance mínimo de esta conexión.
 
@@ -106,15 +119,60 @@ Implicaciones concretas para Cursor:
 
 ## 7. Checklist de implementación para Cursor
 
-1. [ ] Leer el código real de Control de Proyecto y localizar dónde/cómo se crea hoy un proyecto/obra (manual) y cómo se modela una valuación por disciplina dentro de un mismo proyecto (§4), para no inventar un contrato de datos que no calce con el modelo real.
-2. [ ] Agregar los campos `modalidad` y `facturacion` a `ofertas` (§4) y el control en el constructor de oferta para que el analista/supervisor los fije.
-3. [ ] Levantar la instancia nueva del Sistema de Cotización reutilizando el código de `identity/` con su propio `DATABASE_URL`/`SECRET_KEY` (§6) — sin lógica de sesión compartida con Control de Proyecto.
-4. [ ] Construir el botón de descarga del archivo de traspaso en el Sistema de Cotización (visible cuando la oferta está "Ganada") y, del lado de Control de Proyecto, la pantalla de importación manual que lo lee y crea el proyecto — confirmar con el usuario a cuál instancia (MASTER o un SBC específico) debe apuntar esa pantalla.
-5. [ ] Definir cómo se marca de vuelta en el Sistema de Cotización que una oferta ya quedó vinculada a un proyecto (¿a mano, con el id/código que devuelve la importación, o se deja para una fase posterior?) — ver nota de confirmación de recepción en §5.
-6. [ ] Implementar en el Sistema de Cotización el módulo `conexion_control_proyecto/` que genera el archivo de traspaso según la modalidad, con el código de oferta en el nombre para trazabilidad e idempotencia (§5).
-7. [ ] Guardar en la oferta la referencia cruzada al proyecto creado (id/código) para trazabilidad bidireccional.
-8. [ ] Registrar el evento `oferta_ganada` → `proyecto_creado` (o `proyecto_creacion_fallida`) en la bitácora de eventos (§5.12 del esquemático) y exponerlo en el panel de monitoreo.
+1. [x] Leer el código real de Control de Proyecto y localizar dónde/cómo se crea hoy un proyecto/obra (manual) y cómo se modela una valuación por disciplina dentro de un mismo proyecto (§4), para no inventar un contrato de datos que no calce con el modelo real.
+2. [x] (backend; falta la pantalla) Agregar los campos `modalidad` y `facturacion` a `ofertas` (§4) y el control en el constructor de oferta para que el analista/supervisor los fije.
+3. [x] Levantar la instancia nueva del Sistema de Cotización reutilizando el código de `identity/` con su propio `DATABASE_URL`/`SECRET_KEY` (§6) — sin lógica de sesión compartida con Control de Proyecto.
+4. [~] (backend listo: `GET /ofertas/{id}/traspaso`; faltan el botón y la mejora de lectura en Control de Proyecto; destino resuelto: SBC/núcleo) Construir el botón de descarga del archivo de traspaso en el Sistema de Cotización (visible cuando la oferta está "Ganada") y, del lado de Control de Proyecto, la pantalla de importación manual que lo lee y crea el proyecto — confirmar con el usuario a cuál instancia (MASTER o un SBC específico) debe apuntar esa pantalla.
+5. [x] (a mano: `POST /ofertas/{id}/vinculacion`) Definir cómo se marca de vuelta en el Sistema de Cotización que una oferta ya quedó vinculada a un proyecto (¿a mano, con el id/código que devuelve la importación, o se deja para una fase posterior?) — ver nota de confirmación de recepción en §5.
+6. [x] Implementar en el Sistema de Cotización el módulo `conexion_control_proyecto/` que genera el archivo de traspaso según la modalidad, con el código de oferta en el nombre para trazabilidad e idempotencia (§5).
+7. [x] (`ofertas.proyecto_cp_id` y `contrato_cp_numero`) Guardar en la oferta la referencia cruzada al proyecto creado (id/código) para trazabilidad bidireccional.
+8. [~] (bitácora y `GET /ofertas/{id}/eventos` listos; falta el panel) Registrar el evento `oferta_ganada` → `proyecto_creado` (o `proyecto_creacion_fallida`) en la bitácora de eventos (§5.12 del esquemático) y exponerlo en el panel de monitoreo.
 9. [ ] Escribir el procedimiento (PROC-COT-003) que documente, para el equipo, qué pasa exactamente cuando se marca una oferta como Ganada, incluyendo cómo elegir la modalidad correcta, cómo descargar/subir el archivo de traspaso, y cómo dar de alta a un analista que necesite cuenta en ambos sistemas.
+
+## 8. Hallazgos en el código de Control de Proyecto e implementación (2026-09-27)
+
+Revisado `aguy48/oriol-control-de-proyecto`, commit `2d4b140`, versión 1.5.2.11.
+
+### 8.1 Cómo guarda Control de Proyecto un proyecto
+- **Modelo `Proyecto`** (`Backend/app/kernel/models.py`): `id`, `escenario_id`, `nombre`, `cliente`, `cliente_rif` y `estado` (`oferta` → `contrato`…). Además dos columnas JSON:
+  - `master`: la oferta importada;
+  - `ctrl`: todo el ciclo (contratos, valuaciones, HES, facturas, avisos, CxP).
+- **Cliente:** tabla `clientes`, identificado por **RIF**. El formulario de Contrato no deja guardar si la empresa no está registrada.
+- **Contrato** (`ctrl.contratos[]`):
+  - `modalidad`: `obra` o `servicios`;
+  - `tipo_orden`: `orden_compra`, `orden_servicio`, `contrato_obra` o `contrato_servicio`;
+  - además monto, `iva_pct`, `plazo_semanas`, fechas, etc.
+- **Importación de oferta existente:** JSON V1 o Excel, cargado desde el formulario de Contrato. Reemplaza `master` después de pedir confirmación y pasa el proyecto a estado `contrato`. **No** verifica código de oferta; ver 8.3.
+- **"Aliados":** no existe ese concepto en Control de Proyecto. El tipo directo/aliado viaja solo como dato en `origen.cliente.tipo`.
+
+### 8.2 Qué se construyó en `control_oferta`
+- **Instancia propia** (`Backend/`), con su propia `DATABASE_URL` y su propio `SECRET_KEY`.
+  - `identity/` es copia exacta de Control de Proyecto. Script de sincronización: `Backend/herramientas/sincronizar_identity.sh`.
+  - `seguridad_ops` y `geoip_ops` también se copian tal cual.
+  - Telegram, mailer y la política MASTER→SBC usan adaptadores mínimos con la misma interfaz.
+- **`crm/`: ofertas.**
+  - Código `ORI-AAAA-MM-NNN` correlativo por mes.
+  - Partidas por disciplina, con semana de inicio y duración.
+  - Estados: `borrador → enviada → en_negociacion → ganada | perdida | anulada`.
+  - Para pasar a **Ganada** se exige: modalidad, facturación (si es ejecución), RIF y partidas válidas.
+  - Una oferta ganada queda congelada; solo cambian `sede_destino`, `notas` y `cliente_contacto`.
+- **`conexion_control_proyecto/`:**
+  - descarga del traspaso (FOR-COT-002);
+  - vinculación manual;
+  - registro de importación fallida;
+  - bitácora de la conexión: `oferta_ganada`, `traspaso_generado`, `proyecto_vinculado` y `proyecto_creacion_fallida`.
+- **Pruebas:** `Backend/tests/` (18). El archivo de ejemplo se validó con la regla literal de importación del frontend de Control de Proyecto.
+
+### 8.3 Pendiente
+1. **Control de Proyecto** (cambio pequeño, compatible con lo actual): al importar un respaldo que traiga `origen`:
+   - prellenar el cliente por `origen.cliente.rif`;
+   - preseleccionar `tipo_orden`;
+   - guardar `codigo_oferta` en el contrato y avisar si ese código ya se importó en el escenario;
+   - registrar `oferta_importada` en la bitácora.
+2. **Frontend del Sistema de Cotización:** constructor de oferta (con el selector de modalidad y facturación), botón **Descargar traspaso** y formulario de vinculación.
+3. **Documento final de la oferta (PDF/Word con marca ORIOL):** falta generarlo y guardarlo. Hoy se sube aparte como adjunto del contrato en Control de Proyecto.
+4. **Rol "supervisor":** no existe en `identity/`; hoy lo cubre `admin`. Si hace falta, se agrega como rol en ambas instancias.
+5. **PROC-COT-003** y la nota del manual de administrador (MAN-COT-001) sobre cuentas separadas.
 
 ---
 *Documento de build (ING-COT-003) complementario a `ESQUEMATICO_SISTEMA_COTIZACION_ORIOL.md`, para que Cursor desarrolle la conexión entre el Sistema de Cotización y Control de Proyecto de ORIOL Consultores C.A. bajo metodología ATLAS (MET-002).*

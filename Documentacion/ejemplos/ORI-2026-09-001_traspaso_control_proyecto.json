@@ -1,0 +1,100 @@
+{
+  "formato": "RESPALDO_OFERTA_CONTROL_PROYECTO_V1",
+  "generado": "2026-09-27T15:00:00Z",
+  "nombre": "Mantenimiento Mayor Grupos Electrógenos Centro Empresarial",
+  "meta": {
+    "titulo": "Mantenimiento Mayor Grupos Electrógenos Centro Empresarial",
+    "iva_pct": 16,
+    "moneda": "USD",
+    "semanas_totales": 7,
+    "n_items": 4
+  },
+  "resumen": {
+    "total_precio": 56439.8,
+    "iva_monto": 9030.37,
+    "total_general": 65470.17
+  },
+  "frentes": [
+    {
+      "frente_label": "ELECTRICIDAD",
+      "subtotal_precio": 16816.26,
+      "items": [
+        {
+          "item": "1",
+          "descripcion": "Mantenimiento preventivo de tablero de transferencia automática",
+          "unidad": "UND",
+          "cantidad": 2,
+          "precio_unitario": 7658.13,
+          "precio_total": 15316.26
+        },
+        {
+          "item": "2",
+          "descripcion": "Sustitución de cableado de control",
+          "unidad": "ML",
+          "cantidad": 120,
+          "precio_unitario": 12.5,
+          "precio_total": 1500.0
+        }
+      ]
+    },
+    {
+      "frente_label": "MECÁNICA",
+      "subtotal_precio": 39623.54,
+      "items": [
+        {
+          "item": "1",
+          "descripcion": "Limpieza general de planta y puesta a punto del grupo electrógeno",
+          "unidad": "UNDS",
+          "cantidad": 2,
+          "precio_unitario": 11458.28,
+          "precio_total": 22916.56
+        },
+        {
+          "item": "2",
+          "descripcion": "Suministro e instalación de kit de filtros",
+          "unidad": "UNDS",
+          "cantidad": 2,
+          "precio_unitario": 8353.49,
+          "precio_total": 16706.98
+        }
+      ]
+    }
+  ],
+  "cronograma": [
+    {
+      "actividad": "ELECTRICIDAD",
+      "frente_label": "ELECTRICIDAD",
+      "fase": "ELECTRICIDAD",
+      "semana_inicio": 1,
+      "semana_fin": 5,
+      "duracion_semanas": 5
+    },
+    {
+      "actividad": "MECÁNICA",
+      "frente_label": "MECÁNICA",
+      "fase": "MECÁNICA",
+      "semana_inicio": 2,
+      "semana_fin": 7,
+      "duracion_semanas": 6
+    }
+  ],
+  "origen": {
+    "sistema": "sistema_cotizacion_oriol",
+    "formato": "FOR-COT-002",
+    "version": 1,
+    "codigo_oferta": "ORI-2026-09-001",
+    "cliente": {
+      "razon_social": "PDVSA",
+      "rif": "G-20000043-0",
+      "tipo": "directo",
+      "contacto": "Gerencia de Mantenimiento"
+    },
+    "modalidad": "ejecucion",
+    "facturacion": "detallada",
+    "tipo_orden_sugerido": "contrato_obra",
+    "analista": "Ana Lista",
+    "fecha_ganada": "2026-09-27T14:00:00Z",
+    "sede_destino": "SBC proyectos.oriol.support",
+    "huella_sha256": "5a4aa73eaa8ff858ea1de9b275b859046bfadbaa8f4ba46a3eee8fcaa6e26d95"
+  }
+}
