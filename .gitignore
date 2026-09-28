@@ -3,7 +3,13 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.local
 *.db
+*.sqlite
+*.sqlite3
 Backend/data/
+data/
 .pytest_cache/
 .dev-run/
+Instalacion/desarrollo/config.js
+

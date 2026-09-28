@@ -14,6 +14,7 @@ class McpFalso:
         self.traspasos = {}     # codigo -> fila del buzón
         self.caido = False
         self.latidos = 0
+        self.escenarios = []
 
     def __call__(self, method, path, body=None):
         from app.conexion_control_proyecto.mcp import McpError
@@ -23,7 +24,8 @@ class McpFalso:
             self.latidos += 1
             return {"estado": "en_linea"}
         if path == "/nodos-sbc/traspasos/destinos":
-            return [{"id": "nodo-sbc-1", "nombre": "sbc-centro", "sitio_codigo": "centro", "estado": "en_linea"}]
+            return [{"id": "nodo-sbc-1", "nombre": "sbc-centro", "sitio_codigo": "centro",
+                     "estado": "en_linea", "escenarios": list(self.escenarios)}]
         if method == "POST" and path == "/nodos-sbc/traspasos":
             if body["destino_nodo_id"] != "nodo-sbc-1":
                 raise McpError("El MCP respondió 404: El SBC destino no existe", 404)
@@ -137,11 +139,38 @@ def test_mcp_caido_no_impide_ganar_y_se_reenvia(client, h, mcp):
 
 def test_cambiar_destino_de_oferta_ganada_y_destino_invalido(client, h, mcp):
     o = _ganar(client, h, _oferta_lista(client, h)["id"])
-    assert o["mcp_estado"] is None  # sin destino no se envía
-    assert client.post(f"/ofertas/{o['id']}/mcp/enviar", headers=h).status_code == 422
-    r = client.patch(f"/ofertas/{o['id']}", json={"mcp_destino_id": "no-existe"}, headers=h)
-    assert r.status_code == 200
+    assert o["mcp_estado"] is None  # sin SBC de instancia no se envía
+    r = client.post(f"/ofertas/{o['id']}/mcp/enviar", headers=h)
+    assert r.status_code == 422
+    crear_usuario("admin_mcp", "admin")
+    ha = auth_headers(token(client, "admin_mcp"))
+    g = client.get("/generales", headers=ha).json()
+    assert "mcp_token" not in g
+    body = {k: g.get(k) for k in (
+        "razon_social", "rif", "direccion", "telefono", "email",
+        "iva_pct", "moneda", "margen_pct", "gemini_model", "notas",
+    )}
+    body.update(mcp_url="http://mcp", mcp_token="tok-cotizacion",
+                mcp_destino_id="no-existe", mcp_sede_nombre="inexistente")
+    assert client.put("/generales", json=body, headers=ha).status_code == 200
+    assert client.put("/generales", json=body, headers=h).status_code == 403
     assert client.post(f"/ofertas/{o['id']}/mcp/enviar", headers=h).status_code == 404
+    body["mcp_destino_id"] = "nodo-sbc-1"
+    body["mcp_sede_nombre"] = "sbc-centro"
+    del body["mcp_token"]  # no pisa el ya guardado
+    g2 = client.put("/generales", json=body, headers=ha).json()
+    assert g2["mcp_destino_id"] == "nodo-sbc-1" and g2["mcp_fuente"] == "generales"
+    assert "mcp_token" not in g2 and g2["mcp_token_configurado"]
+    nueva = client.post("/ofertas", json={"titulo": "Hereda SBC de Generales",
+                                          "cliente_razon_social": "PDVSA"}, headers=h).json()
+    assert nueva["mcp_destino_id"] == "nodo-sbc-1" and nueva["sede_destino"] == "sbc-centro"
+    patch = client.patch(f"/ofertas/{nueva['id']}", json={"mcp_destino_id": "otro"}, headers=h)
+    assert patch.status_code == 200
+    assert client.get(f"/ofertas/{nueva['id']}", headers=h).json()["mcp_destino_id"] == "nodo-sbc-1"
+    r = client.post(f"/ofertas/{o['id']}/mcp/enviar", headers=h)
+    assert r.status_code == 200 and r.json()["mcp_estado"] == "pendiente"
+    est = client.get("/mcp/estado", headers=h).json()
+    assert est["destino_id"] == "nodo-sbc-1" and est["fuente"] == "generales"
 
 
 def test_ciclo_periodico_late_y_sincroniza(client, h, mcp):
@@ -152,3 +181,68 @@ def test_ciclo_periodico_late_y_sincroniza(client, h, mcp):
     assert mcp.latidos == antes + 1
     mcp.caido = True
     modulo.ciclo_periodico(SessionLocal)  # no lanza aunque el MCP no responda
+
+
+def test_escenarios_vienen_del_sbc_seleccionado(client, mcp):
+    crear_usuario("admin_esc_sbc", "admin")
+    ha = auth_headers(token(client, "admin_esc_sbc"))
+    from app.kernel.db import SessionLocal
+    from app.kernel.models import AjusteGeneral, Escenario
+    db = SessionLocal()
+    try:
+        fila = db.query(AjusteGeneral).filter(AjusteGeneral.id == "default").first()
+        if fila is None:
+            fila = AjusteGeneral(id="default", razon_social="ORIOL Consultores C.A.")
+            db.add(fila)
+        fila.mcp_destino_id = "nodo-sbc-1"
+        fila.mcp_sede_nombre = "sbc-centro"
+        db.commit()
+    finally:
+        db.close()
+    mcp.escenarios = [{
+        "id": "esc-sbc-2627",
+        "razon_social": "ORIOL CONSULTORES",
+        "periodo_contratacion": "2026-2027",
+        "fecha_inicio": "2026-01-01",
+        "fecha_fin": "2027-12-31",
+        "estado": "activo",
+        "consultable": True,
+        "por_defecto": True,
+    }, {
+        "id": "esc-sbc-2526",
+        "razon_social": "ORIOL CONSULTORES",
+        "periodo_contratacion": "2025-2026",
+        "fecha_inicio": "2025-01-01",
+        "fecha_fin": "2026-12-31",
+        "estado": "activo",
+        "consultable": True,
+        "por_defecto": False,
+    }]
+    r = client.post("/mcp/escenarios/sincronizar", headers=ha)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] and body["sede"] == "sbc-centro"
+    assert body["creados"] >= 1
+    nombres = {e["nombre"] for e in body["escenarios"] if e.get("del_sbc")}
+    assert "ORIOL CONSULTORES 2026-2027" in nombres
+    lista = client.get("/escenarios", headers=ha).json()
+    assert any(e["periodo_contratacion"] == "2026-2027" for e in lista)
+    nuevo = next(e for e in lista if e["periodo_contratacion"] == "2026-2027")
+    assert nuevo["id"] == "esc-sbc-2627"
+    alta = client.post("/escenarios", headers=ha, json={
+        "razon_social": "OTRA EMPRESA", "periodo_contratacion": "2028-2029",
+        "fecha_inicio": "2028-01-01", "fecha_fin": "2029-12-31",
+    })
+    assert alta.status_code == 409
+    est = client.get("/mcp/estado", headers=ha).json()
+    assert est["escenarios"][0]["periodo_contratacion"] in ("2026-2027", "2025-2026")
+    db = SessionLocal()
+    try:
+        assert db.query(Escenario).filter(Escenario.id == "esc-sbc-2627").first() is not None
+        fila = db.query(AjusteGeneral).filter(AjusteGeneral.id == "default").first()
+        if fila is not None:
+            fila.mcp_destino_id = None
+            fila.mcp_sede_nombre = None
+            db.commit()
+    finally:
+        db.close()

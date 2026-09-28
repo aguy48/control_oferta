@@ -126,23 +126,37 @@ mcp_router = APIRouter(tags=["conexion_control_proyecto"])
 
 
 @mcp_router.get("/mcp/estado")
-def estado_mcp(_u: Usuario = Depends(require_roles(*ROLES_LECTURA))):
-    """Si el MCP está configurado y responde, con la lista de SBC destino."""
-    from app.kernel.config import settings
+def estado_mcp(db: Session = Depends(get_db),
+               _u: Usuario = Depends(require_roles(*ROLES_LECTURA))):
+    """Si el MCP está configurado y responde, con la lista de SBC y el destino único."""
     from app.conexion_control_proyecto import mcp
-    if not settings.mcp_configurado():
+    dest_id, sede = mcp.destino_instancia(db)
+    url, _token, fuente = mcp.credenciales(db)
+    if not url:
         return {"configurado": False, "url": None, "ok": False, "destinos": [],
-                "detalle": "Sin MCP: define MCP_URL y MCP_TOKEN (nodo rol cotizacion del paso 28)."}
+                "destino_id": dest_id, "sede_nombre": sede, "fuente": None,
+                "escenarios": [],
+                "detalle": "Sin MCP: el administrador lo configura en Generales (URL, token y SBC)."}
     try:
-        return {"configurado": True, "url": settings.MCP_URL, "ok": True, "destinos": mcp.destinos()}
+        destinos = mcp.destinos()
+        escenarios = []
+        for d in destinos:
+            if d.get("id") == dest_id:
+                escenarios = d.get("escenarios") or []
+                break
+        return {"configurado": True, "url": url, "ok": True, "destinos": destinos,
+                "destino_id": dest_id, "sede_nombre": sede, "fuente": fuente,
+                "escenarios": escenarios}
     except mcp.McpError as e:
-        return {"configurado": True, "url": settings.MCP_URL, "ok": False, "destinos": [], "detalle": str(e)}
+        return {"configurado": True, "url": url, "ok": False, "destinos": [],
+                "destino_id": dest_id, "sede_nombre": sede, "fuente": fuente,
+                "escenarios": [], "detalle": str(e)}
 
 
 @mcp_router.post("/ofertas/{oferta_id}/mcp/enviar", response_model=OfertaOut)
 def enviar_por_mcp(oferta_id: str, request: Request, db: Session = Depends(get_db),
                    usuario: Usuario = Depends(require_roles(*ROLES_ESCRITURA))):
-    """Envía (o reenvía, p. ej. tras cambiar el SBC destino) la oferta ganada."""
+    """Envía (o reenvía) la oferta ganada al SBC fijado en Generales."""
     from app.conexion_control_proyecto import mcp
     o = oferta_ops.cargar_oferta(db, oferta_id, usuario, escritura=True)
     _exigir_ganada(o)
@@ -164,3 +178,11 @@ def sincronizar_mcp(db: Session = Depends(get_db),
         return mcp.sincronizar(db)
     except mcp.McpError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+
+
+@mcp_router.post("/mcp/escenarios/sincronizar")
+def sincronizar_escenarios_sbc(db: Session = Depends(get_db),
+                               _u: Usuario = Depends(require_roles("admin"))):
+    """Espeja en esta instancia los escenarios del SBC elegido en Generales."""
+    from app.conexion_control_proyecto import escenario_sbc
+    return escenario_sbc.sincronizar(db)

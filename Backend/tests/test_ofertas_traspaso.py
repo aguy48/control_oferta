@@ -169,8 +169,8 @@ def test_oferta_ganada_queda_congelada(client, h):
     assert r.status_code == 409
     r = client.put(f"/ofertas/{o['id']}/partidas", json=PARTIDAS[:1], headers=h)
     assert r.status_code == 409
-    r = client.patch(f"/ofertas/{o['id']}", json={"sede_destino": "SBC Maracaibo"}, headers=h)
-    assert r.status_code == 200 and r.json()["sede_destino"] == "SBC Maracaibo"
+    r = client.patch(f"/ofertas/{o['id']}", json={"notas": "Sede única en Generales"}, headers=h)
+    assert r.status_code == 200 and r.json()["notas"] == "Sede única en Generales"
     r = client.post(f"/ofertas/{o['id']}/estado", json={"estado": "perdida"}, headers=h)
     assert r.status_code == 409
 

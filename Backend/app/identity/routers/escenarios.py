@@ -42,6 +42,13 @@ def listar(db: Session = Depends(get_db), admin: Usuario = Depends(require_roles
 @router.post("", response_model=EscenarioOut, status_code=status.HTTP_201_CREATED)
 def crear(body: EscenarioCreate, request: Request, db: Session = Depends(get_db),
           admin: Usuario = Depends(require_roles("admin"))):
+    # ADAPTADO (Sistema de Cotización): con SBC destino, el catálogo no se crea aquí.
+    from app.conexion_control_proyecto import escenario_sbc
+    if not escenario_sbc.alta_local_permitida(db):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Los escenarios vienen del SBC seleccionado en Generales. No se crean aquí.",
+        )
     razon = body.razon_social.strip()
     periodo = body.periodo_contratacion.strip()
     escenario_ops.validar_fechas(body.fecha_inicio, body.fecha_fin)

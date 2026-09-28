@@ -133,6 +133,27 @@ class RefreshToken(Base):
     usuario = relationship("Usuario", back_populates="refresh_tokens")
 
 
+class TelegramEmparejamiento(Base):
+    """Código de un solo uso para vincular un chat de Telegram a un Usuario."""
+    __tablename__ = "telegram_emparejamientos"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    usuario_id = Column(String, ForeignKey("usuarios.id"), nullable=False, index=True)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    expira_en = Column(DateTime(timezone=True), nullable=False)
+    usado_en = Column(DateTime(timezone=True), nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+
+
+class TelegramKV(Base):
+    """Offset de polling y anti-rebote de alertas (clave → valor)."""
+    __tablename__ = "telegram_kv"
+
+    clave = Column(String, primary_key=True)
+    valor = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now)
+
+
 class BitacoraEvento(Base):
     """
     Bitácora de auditoría, append-only.
@@ -291,6 +312,10 @@ class Oferta(Base):
 
     moneda = Column(String, nullable=False, default="USD")
     iva_pct = Column(Integer, nullable=False, default=16)
+    # Margen comercial sobre el costo del proveedor (OCR / Gemini).
+    margen_pct = Column(Float, nullable=False, default=25)
+    # comercial | tecnica: la técnica nace de un informe de campo.
+    origen = Column(String, nullable=False, default="comercial")
     semanas_totales = Column(Integer, nullable=True)
     # SBC/sede de Control de Proyecto que debe importar el traspaso
     # (el MASTER no opera obra — PARA_CLAUDE_arquitectura_nucleo_borde.md).
@@ -352,14 +377,277 @@ class PartidaOferta(Base):
     semana_inicio = Column(Integer, nullable=True)
     duracion_semanas = Column(Integer, nullable=True)
 
+    producto_id = Column(String, ForeignKey("productos_servicios.id"), nullable=True, index=True)
+
     oferta = relationship("Oferta", back_populates="partidas")
+    producto = relationship("ProductoServicio")
 
     @property
     def precio_total(self) -> float:
         return round((self.cantidad or 0) * (self.precio_unitario or 0), 2)
+
+    @property
+    def requiere_serial(self) -> bool:
+        return bool(self.producto and self.producto.requiere_serial)
+
+    @property
+    def garantia_semanas(self) -> int | None:
+        return self.producto.garantia_semanas if self.producto else None
+
+    @property
+    def tiempo_entrega_semanas(self) -> int | None:
+        return self.producto.tiempo_entrega_semanas if self.producto else None
 
 
 # identity/escenario_ops.py (copiado tal cual) consulta "Proyecto" para
 # validar visibilidad por escenario y enlazar registros huérfanos. En esta
 # instancia la unidad de trabajo del escenario es la oferta.
 Proyecto = Oferta
+
+
+# ---------------------------------------------------------------------------
+# Plataforma operativa (mismas opciones que Control de Proyecto)
+# Clientes, contactos, tareas, documentos y seguimiento del ciclo se
+# operan aquí; el ciclo contractual/financiero se ejecuta en el SBC
+# después del traspaso (ING-COT-003).
+# ---------------------------------------------------------------------------
+
+ESTADOS_TAREA = ("pendiente", "en_curso", "hecha", "cancelada")
+ESTADOS_SEGUIMIENTO = ("pendiente", "en_curso", "hecho", "no_aplica")
+PASOS_CICLO_CP = (
+    "acta_adj", "contrato", "fianzas", "ejecucion_fisica", "valuaciones",
+    "hes", "facturas", "avisos_pago", "estado_cuenta", "cxc", "cxp", "acta_cierre",
+)
+
+
+def _rif_norm(valor: str | None) -> str | None:
+    if not valor:
+        return None
+    limpio = "".join(ch for ch in str(valor).upper() if ch.isalnum())
+    return limpio or None
+
+
+class Cliente(Base):
+    """Ficha fiscal del cliente (mismo criterio de RIF que Control de Proyecto)."""
+    __tablename__ = "clientes"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    razon_social = Column(String, nullable=False)
+    rif = Column(String, nullable=True, index=True)
+    rif_norm = Column(String, nullable=True, index=True)
+    direccion = Column(Text, nullable=True)
+    telefono = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    tipo = Column(String, nullable=False, default="directo")  # directo | aliado
+    condicion_pago = Column(String, nullable=True)
+    notas = Column(Text, nullable=True)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+TIPOS_PRODUCTO = ("producto", "servicio")
+
+
+class ProductoServicio(Base):
+    """Catálogo cotizable. El serial se pide al ganar la venta, no al cotizar."""
+    __tablename__ = "productos_servicios"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    tipo = Column(String, nullable=False, default="producto")  # producto | servicio
+    codigo = Column(String, nullable=False, index=True)
+    nombre = Column(String, nullable=False)
+    descripcion = Column(Text, nullable=True)
+    unidad = Column(String, nullable=False, default="UND")
+    disciplina = Column(String, nullable=True)
+    precio_ref = Column(Float, nullable=True)
+    requiere_serial = Column(Boolean, nullable=False, default=False)
+    garantia_semanas = Column(Integer, nullable=True)
+    tiempo_entrega_semanas = Column(Integer, nullable=True)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+    __table_args__ = (
+        UniqueConstraint("escenario_id", "codigo", name="uq_producto_codigo_escenario"),
+        Index("ix_producto_nombre", "nombre"),
+    )
+
+
+class SerialVenta(Base):
+    """Serial capturado al pasar la oferta a ganada (una unidad = un serial)."""
+    __tablename__ = "ofertas_seriales"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=False, index=True)
+    partida_id = Column(String, ForeignKey("ofertas_partidas.id"), nullable=False, index=True)
+    producto_id = Column(String, ForeignKey("productos_servicios.id"), nullable=False, index=True)
+    serial = Column(String, nullable=False)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("partida_id", "serial", name="uq_serial_partida"),
+    )
+
+
+class Proveedor(Base):
+    __tablename__ = "proveedores"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    razon_social = Column(String, nullable=False)
+    rif = Column(String, nullable=True, index=True)
+    contacto = Column(String, nullable=True)
+    telefono = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    notas = Column(Text, nullable=True)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class Contacto(Base):
+    __tablename__ = "contactos"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=True, index=True)
+    nombre = Column(String, nullable=False)
+    cargo = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    telefono = Column(String, nullable=True)
+    tipo_responsable = Column(String, nullable=True)
+    notas = Column(Text, nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class Tarea(Base):
+    __tablename__ = "tareas"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    titulo = Column(String, nullable=False)
+    descripcion = Column(Text, nullable=True)
+    estado = Column(String, nullable=False, default="pendiente")
+    vencimiento = Column(Date, nullable=True)
+    asignado_a = Column(String, nullable=True)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=True, index=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=True, index=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class Documento(Base):
+    """Referencia a un documento de la oferta o del cliente (url o nota)."""
+    __tablename__ = "documentos"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    titulo = Column(String, nullable=False)
+    tipo = Column(String, nullable=False, default="general")
+    url = Column(Text, nullable=True)
+    notas = Column(Text, nullable=True)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=True, index=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=True, index=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class SeguimientoPaso(Base):
+    """Estado comercial de cada paso del ciclo de Control de Proyecto
+    para una oferta ganada (el trabajo operativo vive en el SBC)."""
+    __tablename__ = "seguimiento_pasos"
+    __table_args__ = (
+        UniqueConstraint("oferta_id", "paso", name="uq_seguimiento_oferta_paso"),
+    )
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=False, index=True)
+    paso = Column(String, nullable=False, index=True)
+    estado = Column(String, nullable=False, default="pendiente")
+    notas = Column(Text, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now, onupdate=now)
+    actualizado_por = Column(String, nullable=True)
+
+
+class AjusteGeneral(Base):
+    """Datos de la empresa en esta instancia (una sola fila)."""
+    __tablename__ = "ajustes_generales"
+
+    id = Column(String, primary_key=True, default="default")
+    razon_social = Column(String, nullable=True)
+    rif = Column(String, nullable=True)
+    direccion = Column(Text, nullable=True)
+    telefono = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    iva_pct = Column(Integer, nullable=False, default=16)
+    moneda = Column(String, nullable=False, default="USD")
+    margen_pct = Column(Float, nullable=False, default=25)
+    gemini_api_key_enc = Column(Text, nullable=True)
+    gemini_model = Column(String, nullable=True)
+    mcp_url = Column(String, nullable=True)
+    mcp_token_enc = Column(Text, nullable=True)
+    mcp_destino_id = Column(String, nullable=True)
+    mcp_sede_nombre = Column(String, nullable=True)
+    telegram_bot_token_enc = Column(Text, nullable=True)
+    telegram_bot_username = Column(String, nullable=True)
+    telegram_mode = Column(String, nullable=True)
+    telegram_webhook_secret_enc = Column(Text, nullable=True)
+    telegram_poll_seconds = Column(Integer, nullable=True)
+    telegram_emparejar_ttl_min = Column(Integer, nullable=True)
+    onlyoffice_url = Column(String, nullable=True)
+    onlyoffice_jwt_secret_enc = Column(Text, nullable=True)
+    onlyoffice_app_url = Column(String, nullable=True)
+    notas = Column(Text, nullable=True)
+    actualizado_en = Column(DateTime(timezone=True), default=now)
+    actualizado_por = Column(String, nullable=True)
+
+
+TIPOS_ANEXO = (
+    "factura_proveedor", "oferta_proveedor", "informe_tecnico",
+    "oferta_comercial", "rif", "audio", "whatsapp", "imagen", "otro",
+)
+
+
+class AnexoOferta(Base):
+    """PDF de proveedor, informe de campo u oferta comercial de ORIOL."""
+    __tablename__ = "ofertas_anexos"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=True, index=True)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    tipo = Column(String, nullable=False, default="otro")
+    nombre = Column(String, nullable=False)
+    mime = Column(String, nullable=True)
+    ruta = Column(String, nullable=False)
+    texto_ocr = Column(Text, nullable=True)
+    extraccion = Column(JSON, nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)
+
+
+class InformeTecnico(Base):
+    """Levantamiento / actividades de campo que derivan en una oferta comercial."""
+    __tablename__ = "informes_tecnicos"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    escenario_id = Column(String, ForeignKey("escenarios.id"), nullable=True, index=True)
+    codigo = Column(String, nullable=True)
+    titulo = Column(String, nullable=False)
+    cliente_razon_social = Column(String, nullable=True)
+    cliente_rif = Column(String, nullable=True)
+    resumen = Column(Text, nullable=True)
+    anexo_id = Column(String, ForeignKey("ofertas_anexos.id"), nullable=True)
+    oferta_id = Column(String, ForeignKey("ofertas.id"), nullable=True, index=True)
+    creado_en = Column(DateTime(timezone=True), default=now)
+    creado_por = Column(String, nullable=True)

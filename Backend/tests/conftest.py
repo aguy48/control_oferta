@@ -14,6 +14,12 @@ os.environ["STORAGE_DIR"] = tempfile.mkdtemp()
 # Las pruebas de negocio no ejercitan el TOTP (lo cubre la suite de
 # identity en Control de Proyecto, de donde se copia el módulo tal cual).
 os.environ["REQUIRE_2FA"] = "false"
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
+os.environ["TELEGRAM_BOT_USERNAME"] = ""
+os.environ["TELEGRAM_WEBHOOK_SECRET"] = ""
+os.environ["ONLYOFFICE_URL"] = ""
+os.environ["ONLYOFFICE_APP_URL"] = ""
+os.environ["ONLYOFFICE_JWT_SECRET"] = ""
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

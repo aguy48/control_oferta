@@ -13,7 +13,7 @@ import os
 import secrets
 
 # Coincide con el archivo VERSION de la raíz del proyecto.
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.3.9"
 
 
 def _env(name, default=None, required=False):
@@ -88,9 +88,8 @@ class Settings:
     STORAGE_DIR: str = _env("STORAGE_DIR", "./data")
 
     # --- Traspaso por MCP (MASTER CONTROL PROJECT) ---
-    # El Sistema de Cotización es un nodo del MCP (rol "cotizacion", paso 28):
-    # publica ahí las ofertas ganadas y lee los acuses del SBC destino.
-    # Vacío = sin MCP (queda solo la descarga manual del traspaso).
+    # Preferido: URL, token y SBC único en Generales (solo admin).
+    # .env queda como reserva si Generales aún no está lleno.
     MCP_URL: str = (_env("MCP_URL", "") or "").strip().rstrip("/")
     MCP_TOKEN: str = (_env("MCP_TOKEN", "") or "").strip()
     MCP_POLL_SECONDS: int = int(_env("MCP_POLL_SECONDS", "60"))
@@ -98,6 +97,25 @@ class Settings:
 
     def mcp_configurado(self) -> bool:
         return bool(self.MCP_URL and self.MCP_TOKEN)
+
+    # Gemini (OCR de ofertas de proveedor / informe técnico → partidas).
+    # Si está vacío se usa la clave cifrada de Generales.
+    GEMINI_API_KEY: str = (_env("GEMINI_API_KEY", "") or "").strip()
+    GEMINI_MODEL: str = (_env("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash").strip()
+
+    # Bot de Telegram (preferido en Generales; .env como reserva).
+    TELEGRAM_BOT_TOKEN: str = (_env("TELEGRAM_BOT_TOKEN", "") or "").strip()
+    TELEGRAM_BOT_USERNAME: str = (_env("TELEGRAM_BOT_USERNAME", "") or "").lstrip("@")
+    TELEGRAM_MODE: str = (_env("TELEGRAM_MODE", "polling") or "polling").strip().lower()
+    TELEGRAM_WEBHOOK_SECRET: str = (_env("TELEGRAM_WEBHOOK_SECRET", "") or "").strip()
+    TELEGRAM_POLL_SECONDS: int = int(_env("TELEGRAM_POLL_SECONDS", "3"))
+    TELEGRAM_EMPAREJAR_TTL_MIN: int = int(_env("TELEGRAM_EMPAREJAR_TTL_MIN", "15"))
+
+    # OnlyOffice Document Server (el mismo del NUC que usa Control de Proyecto).
+    # ONLYOFFICE_APP_URL es ESTA API (:8100) vista por el contenedor, no la de CP.
+    ONLYOFFICE_URL: str = (_env("ONLYOFFICE_URL", "") or "").strip().rstrip("/")
+    ONLYOFFICE_APP_URL: str = (_env("ONLYOFFICE_APP_URL", "") or "").strip().rstrip("/")
+    ONLYOFFICE_JWT_SECRET: str = (_env("ONLYOFFICE_JWT_SECRET", "") or "").strip()
 
     # 2FA obligatorio para admin/analista (REQUIRE_2FA=0 solo en el puesto local).
     REQUIRE_2FA: bool = (_env("REQUIRE_2FA", "true") or "true").lower() in ("1", "true", "yes", "si")

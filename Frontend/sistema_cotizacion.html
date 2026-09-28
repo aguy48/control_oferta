@@ -58,15 +58,42 @@
     <img class="logo" src="assets/logo-oriol.png" alt="ORIOL Continuidad 24/7">
     <div class="titulo">
       <h1>Sistema de Cotización</h1>
-      <div class="small muted" id="esc-actual"></div>
+      <button type="button" class="esc-badge" id="esc-actual" title="Cambiar escenario de trabajo"></button>
     </div>
     <div class="userbar">
       <span id="u-nombre"></span><span class="chip" id="u-rol"></span>
+      <button class="btn ghost sm" id="btn-telegram" title="Avisos por Telegram">Telegram</button>
       <button class="btn ghost sm" id="b-salir">Salir</button>
     </div>
   </header>
 
-  <main class="layout">
+  <nav class="subnav" id="control-subnav" aria-label="Opciones del sistema">
+    <button class="subtab-btn active" data-sub="panel" data-paso="1" title="Paso 01: Panel de Control"><span class="subtab-num">01</span><span class="subtab-lbl">Panel</span></button>
+    <button class="subtab-btn" data-sub="ofertas" data-paso="2" title="Paso 02: Ofertas comerciales"><span class="subtab-num">02</span><span class="subtab-lbl">Ofertas</span></button>
+    <button class="subtab-btn" data-sub="informes" data-paso="3" title="Paso 03: Informes técnicos de campo"><span class="subtab-num">03</span><span class="subtab-lbl">Informes</span></button>
+    <button class="subtab-btn" data-sub="reportes" data-paso="4" title="Paso 04: Reportes de oferta e informe"><span class="subtab-num">04</span><span class="subtab-lbl">Reportes</span></button>
+    <button class="subtab-btn" data-sub="clientes" data-paso="5" title="Paso 05: Clientes"><span class="subtab-num">05</span><span class="subtab-lbl">Clientes</span></button>
+    <button class="subtab-btn" data-sub="productos" data-paso="6" title="Paso 06: Productos y servicios"><span class="subtab-num">06</span><span class="subtab-lbl">Productos y servicios</span></button>
+    <button class="subtab-btn" data-sub="proveedores" data-paso="7" title="Paso 07: Proveedores"><span class="subtab-num">07</span><span class="subtab-lbl">Proveedores</span></button>
+    <button class="subtab-btn" data-sub="contactos" data-paso="8" title="Paso 08: Contactos"><span class="subtab-num">08</span><span class="subtab-lbl">Contactos</span></button>
+    <button class="subtab-btn" data-sub="tareas" data-paso="9" title="Paso 09: Tareas"><span class="subtab-num">09</span><span class="subtab-lbl">Tareas</span></button>
+    <button class="subtab-btn" data-sub="documentos" data-paso="10" title="Paso 10: Documentos"><span class="subtab-num">10</span><span class="subtab-lbl">Documentos</span></button>
+    <button class="subtab-btn admin-only" data-sub="usuarios" data-paso="11" title="Paso 11: Usuarios" id="subtab-usuarios" hidden><span class="subtab-num">11</span><span class="subtab-lbl">Usuarios</span></button>
+    <button class="subtab-btn admin-only" data-sub="auditoria" data-paso="12" title="Paso 12: Auditoría (personas)" id="subtab-auditoria" hidden><span class="subtab-num">12</span><span class="subtab-lbl">Auditoría</span></button>
+    <button class="subtab-btn admin-only" data-sub="eventos" data-paso="13" title="Paso 13: Eventos del sistema" id="subtab-eventos" hidden><span class="subtab-num">13</span><span class="subtab-lbl">Eventos</span></button>
+    <button class="subtab-btn admin-only" data-sub="respaldo" data-paso="14" title="Paso 14: Respaldo de datos y aplicación" id="subtab-respaldo" hidden><span class="subtab-num">14</span><span class="subtab-lbl">Respaldo</span></button>
+    <button class="subtab-btn admin-only" data-sub="escenarios" data-paso="15" title="Paso 15: Escenarios" id="subtab-escenarios" hidden><span class="subtab-num">15</span><span class="subtab-lbl">Escenarios</span></button>
+    <button class="subtab-btn admin-only" data-sub="generales" data-paso="16" title="Paso 16: Generales (empresa, MCP, Telegram, OnlyOffice)" id="subtab-generales" hidden><span class="subtab-num">16</span><span class="subtab-lbl">Generales</span></button>
+  </nav>
+  <p class="paso-ayuda" id="paso-ayuda"></p>
+  <p class="paso-ayuda-bar" id="paso-ayuda-bar">
+    <span class="paso-ayuda-txt" id="paso-ayuda-txt">Pulsa el botón para abrir la ayuda de esta opción en el chatbot.</span>
+    <button type="button" class="btn sm" id="btn-ayuda-paso">Ayuda en el chatbot</button>
+  </p>
+
+  <div id="vista-panel" class="vista hidden"></div>
+
+  <main id="vista-ofertas" class="vista layout hidden">
     <section class="card">
       <div class="card-head">
         <h2>Ofertas</h2>
@@ -90,9 +117,53 @@
       <div class="card vacio" id="sin-seleccion">Selecciona una oferta o crea una nueva.</div>
     </section>
   </main>
+
+  <div id="vista-modulo" class="vista hidden">
+    <section class="card" id="modulo-host"></section>
+  </div>
 </div>
 
 <div id="toast" class="toast hidden" role="status"></div>
-<script src="js/app.js"></script>
+
+<div id="asistente-widget" hidden>
+  <div id="asistente-panel" hidden>
+    <header>
+      <strong>Asistente del sistema</strong>
+      <div id="asistente-modos" hidden>
+        <button type="button" data-modo="ayuda" class="active">Ayuda</button>
+        <button type="button" data-modo="mejora">Mejora</button>
+      </div>
+      <button type="button" id="asistente-close" title="Cerrar" aria-label="Cerrar">×</button>
+    </header>
+    <div id="asistente-mensajes"></div>
+    <div id="asistente-chips"></div>
+    <form id="asistente-form">
+      <input id="asistente-input" autocomplete="off" placeholder="Pregunta por un paso (01–16)…">
+      <button type="submit">Enviar</button>
+    </form>
+  </div>
+  <button type="button" id="asistente-toggle" title="Asistente: las opciones siguen la secuencia 01 a 16">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span class="asistente-fab-num">01–16</span>
+  </button>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-backdrop">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<div class="oo-backdrop" id="oo-backdrop" aria-hidden="true">
+  <div class="oo-panel">
+    <div class="oo-bar">
+      <strong id="oo-titulo">Documento</strong>
+      <button class="btn ghost sm" type="button" id="oo-descargar">Descargar</button>
+      <button class="btn ghost sm" type="button" id="oo-cerrar">Cerrar</button>
+    </div>
+    <div id="oo-placeholder"></div>
+  </div>
+</div>
+
+<script src="js/app.js?v=0.3.9"></script>
+<script src="js/plataforma.js?v=0.3.9"></script>
 </body>
 </html>

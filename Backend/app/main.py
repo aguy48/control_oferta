@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
-from app import identity, crm, conexion_control_proyecto
+from app import identity, crm, conexion_control_proyecto, plataforma
 from app.kernel import security
 from app.kernel.config import APP_VERSION, settings
 from app.kernel.db import Base, SessionLocal, engine
@@ -58,18 +58,50 @@ def _inicializar_datos():
 
 
 def _asegurar_columnas():
-    """create_all no agrega columnas a tablas existentes: se añaden aquí las
-    columnas nuevas de ofertas (traspaso por MCP) en bases ya creadas."""
-    nuevas = {
+    """create_all no agrega columnas a tablas existentes."""
+    tablas = inspect(engine).get_table_names()
+
+    def agregar(tabla: str, nuevas: dict[str, str]) -> None:
+        if tabla not in tablas:
+            return
+        existentes = {c["name"] for c in inspect(engine).get_columns(tabla)}
+        with engine.begin() as con:
+            for col, tipo in nuevas.items():
+                if col not in existentes:
+                    con.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {col} {tipo}"))
+                    logger.info("Columna %s.%s agregada.", tabla, col)
+
+    agregar("ofertas", {
         "mcp_destino_id": "VARCHAR", "mcp_traspaso_id": "VARCHAR", "mcp_version": "INTEGER",
         "mcp_estado": "VARCHAR", "mcp_detalle": "TEXT", "mcp_actualizado_en": "TIMESTAMP",
-    }
-    existentes = {c["name"] for c in inspect(engine).get_columns("ofertas")}
-    with engine.begin() as con:
-        for col, tipo in nuevas.items():
-            if col not in existentes:
-                con.execute(text(f"ALTER TABLE ofertas ADD COLUMN {col} {tipo}"))
-                logger.info("Columna ofertas.%s agregada.", col)
+        "margen_pct": "FLOAT DEFAULT 25", "origen": "VARCHAR DEFAULT 'comercial'",
+    })
+    agregar("ofertas_partidas", {
+        "producto_id": "VARCHAR",
+    })
+    agregar("usuarios", {
+        "telegram_chat_id": "VARCHAR",
+        "telegram_username": "VARCHAR",
+        "telegram_vinculado_en": "TIMESTAMP",
+    })
+    agregar("ajustes_generales", {
+        "margen_pct": "FLOAT DEFAULT 25",
+        "gemini_api_key_enc": "TEXT",
+        "gemini_model": "VARCHAR",
+        "mcp_url": "VARCHAR",
+        "mcp_token_enc": "TEXT",
+        "mcp_destino_id": "VARCHAR",
+        "mcp_sede_nombre": "VARCHAR",
+        "telegram_bot_token_enc": "TEXT",
+        "telegram_bot_username": "VARCHAR",
+        "telegram_mode": "VARCHAR",
+        "telegram_webhook_secret_enc": "TEXT",
+        "telegram_poll_seconds": "INTEGER",
+        "telegram_emparejar_ttl_min": "INTEGER",
+        "onlyoffice_url": "VARCHAR",
+        "onlyoffice_jwt_secret_enc": "TEXT",
+        "onlyoffice_app_url": "VARCHAR",
+    })
 
 
 async def _ciclo_mcp():
@@ -80,19 +112,35 @@ async def _ciclo_mcp():
         await asyncio.sleep(max(15, settings.MCP_POLL_SECONDS))
 
 
+async def _ciclo_telegram():
+    from app.plataforma import telegram_ops
+    while True:
+        await asyncio.to_thread(telegram_ops.ciclo_periodico, SessionLocal)
+        await asyncio.sleep(max(2, telegram_ops.poll_seconds_activo()))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _inicializar_datos()
-    tarea = None
-    if settings.mcp_configurado():
-        tarea = asyncio.create_task(_ciclo_mcp())
-        logger.info("Traspaso por MCP activo: %s", settings.MCP_URL)
+    from app.conexion_control_proyecto import mcp
+    from app.plataforma import telegram_ops
+    telegram_ops.recargar_desde_db()
+    tarea_mcp = asyncio.create_task(_ciclo_mcp())
+    tarea_tg = asyncio.create_task(_ciclo_telegram())
+    if mcp.activo():
+        url, _tok, fuente = mcp.credenciales()
+        logger.info("Traspaso por MCP activo (%s): %s", fuente, url)
     else:
-        logger.info("MCP no configurado: el traspaso queda por descarga manual.")
+        logger.info("MCP no configurado: el administrador lo fija en Generales.")
+    if telegram_ops.bot_configurado():
+        logger.info("Telegram activo (%s) @%s", telegram_ops.modo_activo(),
+                    telegram_ops.username_activo() or "—")
+    else:
+        logger.info("Telegram no configurado: el administrador lo fija en Generales.")
     logger.info("Backend del Sistema de Cotización iniciado.")
     yield
-    if tarea:
-        tarea.cancel()
+    tarea_mcp.cancel()
+    tarea_tg.cancel()
 
 
 app = FastAPI(
@@ -113,10 +161,12 @@ app.add_middleware(
 
 identity.montar(app)
 crm.montar(app)
+plataforma.montar(app)
 conexion_control_proyecto.montar(app)
 
 
 @app.get("/health")
 def health():
+    from app.conexion_control_proyecto import mcp
     return {"status": "ok", "version": APP_VERSION, "modo": settings.modo_app(),
-            "organizacion": settings.ORGANIZACION, "mcp": settings.mcp_configurado()}
+            "organizacion": settings.ORGANIZACION, "mcp": mcp.activo()}

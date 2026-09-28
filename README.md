@@ -1,5 +1,7 @@
 # Sistema de Cotización — ORIOL Consultores C.A.
 
+Documentación completa de la instancia (menú 01–16, roles, MCP, Gemini, OnlyOffice, Eventos y Respaldo): [`Documentacion/SISTEMA_COTIZACION_COMPLETO.md`](Documentacion/SISTEMA_COTIZACION_COMPLETO.md).
+
 Ofertas comerciales y traspaso de las ofertas **ganadas** a **Control de Proyecto**, bajo metodología ATLAS (MET-002).
 
 - **Instancia propia:** base de datos, `SECRET_KEY` y cuentas de usuario separadas de Control de Proyecto (ING-COT-003 §6).

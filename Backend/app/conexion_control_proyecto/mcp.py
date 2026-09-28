@@ -24,7 +24,8 @@ from sqlalchemy.orm import Session
 
 from app.kernel.audit import registrar
 from app.kernel.config import APP_VERSION, settings
-from app.kernel.models import Oferta, now
+from app.kernel.crypto_secrets import descifrar
+from app.kernel.models import AjusteGeneral, Oferta, now
 from app.conexion_control_proyecto.traspaso import construir_traspaso
 
 logger = logging.getLogger("sistema_cotizacion")
@@ -39,14 +40,72 @@ class McpError(RuntimeError):
         self.http_status = http_status
 
 
+def credenciales(db: Session | None = None) -> tuple[str, str, str]:
+    """URL, token y fuente ('generales' | 'entorno' | ''). Generales manda sobre .env."""
+    own = False
+    if db is None:
+        from app.kernel.db import SessionLocal
+        db = SessionLocal()
+        own = True
+    try:
+        fila = db.query(AjusteGeneral).filter(AjusteGeneral.id == "default").first()
+        if fila is not None:
+            url = (fila.mcp_url or "").strip().rstrip("/")
+            token = (descifrar(fila.mcp_token_enc) or "").strip()
+            if url and token:
+                return url, token, "generales"
+    finally:
+        if own:
+            db.close()
+    if settings.MCP_URL and settings.MCP_TOKEN:
+        return settings.MCP_URL, settings.MCP_TOKEN, "entorno"
+    return "", "", ""
+
+
+def activo(db: Session | None = None) -> bool:
+    url, token, _ = credenciales(db)
+    return bool(url and token)
+
+
+def destino_instancia(db: Session | None = None) -> tuple[str | None, str | None]:
+    """SBC único de esta instancia (Generales)."""
+    own = False
+    if db is None:
+        from app.kernel.db import SessionLocal
+        db = SessionLocal()
+        own = True
+    try:
+        fila = db.query(AjusteGeneral).filter(AjusteGeneral.id == "default").first()
+        if fila is None:
+            return None, None
+        dest = (fila.mcp_destino_id or "").strip() or None
+        sede = (fila.mcp_sede_nombre or "").strip() or None
+        return dest, sede
+    finally:
+        if own:
+            db.close()
+
+
+def aplicar_destino_instancia(db: Session, o: Oferta) -> str | None:
+    dest, sede = destino_instancia(db)
+    if dest:
+        o.mcp_destino_id = dest
+        if sede:
+            o.sede_destino = sede
+    elif sede and not o.sede_destino:
+        o.sede_destino = sede
+    return dest
+
+
 def _llamar(method: str, path: str, body: dict | None = None) -> dict | list:
-    if not settings.mcp_configurado():
-        raise McpError("El MCP no está configurado (MCP_URL y MCP_TOKEN en Backend/.env).")
+    url, token, _ = credenciales()
+    if not url or not token:
+        raise McpError("El MCP no está configurado (Generales: URL y token del nodo cotización).")
     req = urllib.request.Request(
-        settings.MCP_URL + path,
+        url + path,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None,
         headers={"Content-Type": "application/json", "Accept": "application/json",
-                 "X-SBC-Token": settings.MCP_TOKEN},
+                 "X-SBC-Token": token},
         method=method,
     )
     try:
@@ -60,7 +119,7 @@ def _llamar(method: str, path: str, body: dict | None = None) -> dict | list:
             detalle = cuerpo
         raise McpError(f"El MCP respondió {e.code}: {str(detalle)[:400]}", e.code) from e
     except (urllib.error.URLError, OSError) as e:
-        raise McpError(f"No se alcanzó el MCP en {settings.MCP_URL}: {getattr(e, 'reason', e)}") from e
+        raise McpError(f"No se alcanzó el MCP en {url}: {getattr(e, 'reason', e)}") from e
     return json.loads(raw) if raw else {}
 
 
@@ -112,11 +171,12 @@ def _aplicar_estado(db: Session, o: Oferta, t: dict) -> bool:
 
 
 def enviar(db: Session, o: Oferta, usuario=None, ip: str | None = None) -> Oferta:
-    """Publica la oferta ganada en el MCP para su SBC destino."""
+    """Publica la oferta ganada en el MCP para el SBC de esta instancia."""
     if o.estado != "ganada":
         raise McpError("Solo se envían por el MCP ofertas ganadas.", 409)
+    aplicar_destino_instancia(db, o)
     if not o.mcp_destino_id:
-        raise McpError("Elige el SBC destino de la oferta antes de enviarla por el MCP.", 422)
+        raise McpError("El administrador debe fijar el SBC destino en Generales.", 422)
     datos = construir_traspaso(o)
     try:
         t = _llamar("POST", "/nodos-sbc/traspasos", {"destino_nodo_id": o.mcp_destino_id, "traspaso": datos})
@@ -166,12 +226,14 @@ def sincronizar(db: Session) -> dict:
 
 def ciclo_periodico(db_factory) -> None:
     """Un paso del planificador: latido + acuses (sin romper si el MCP no responde)."""
-    if not settings.mcp_configurado():
+    if not activo():
         return
     db = db_factory()
     try:
         latido()
         sincronizar(db)
+        from app.conexion_control_proyecto import escenario_sbc
+        escenario_sbc.sincronizar(db)
     except McpError as e:
         logger.info("MCP no disponible: %s", e)
     except Exception:

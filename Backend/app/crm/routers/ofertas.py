@@ -2,12 +2,11 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.kernel.audit import registrar
-from app.kernel.config import settings
 from app.kernel.db import get_db
 from app.kernel.deps import client_ip, require_roles
 from app.kernel.models import Usuario
-from app.kernel.schemas import OfertaCreate, OfertaEstadoIn, OfertaOut, OfertaUpdate, PartidaIn
-from app.crm import oferta_ops
+from app.kernel.schemas import OfertaCreate, OfertaEstadoIn, OfertaOut, OfertaUpdate, PartidaIn, SerialRequeridoOut
+from app.crm import oferta_ops, producto_ops
 from app.crm.oferta_ops import ROLES_ESCRITURA, ROLES_LECTURA
 
 router = APIRouter(prefix="/ofertas", tags=["ofertas"])
@@ -63,11 +62,20 @@ def reemplazar_partidas(oferta_id: str, body: list[PartidaIn], request: Request,
     return o
 
 
+@router.get("/{oferta_id}/seriales-requeridos", response_model=list[SerialRequeridoOut])
+def seriales_requeridos(oferta_id: str, db: Session = Depends(get_db),
+                        usuario: Usuario = Depends(require_roles(*ROLES_LECTURA))):
+    o = oferta_ops.cargar_oferta(db, oferta_id, usuario)
+    return producto_ops.seriales_requeridos(db, o)
+
+
 @router.post("/{oferta_id}/estado", response_model=OfertaOut)
 def cambiar_estado(oferta_id: str, body: OfertaEstadoIn, request: Request,
                    db: Session = Depends(get_db),
                    usuario: Usuario = Depends(require_roles(*ROLES_ESCRITURA))):
     o = oferta_ops.cargar_oferta(db, oferta_id, usuario, escritura=True)
+    if body.estado == "ganada":
+        producto_ops.registrar_seriales(db, o, body.seriales, usuario)
     anterior = oferta_ops.cambiar_estado(o, body.estado, usuario)
     db.commit()
     db.refresh(o)
@@ -79,13 +87,25 @@ def cambiar_estado(oferta_id: str, body: OfertaEstadoIn, request: Request,
         detalle += f" modalidad={o.modalidad} facturacion={o.facturacion or '-'} total={o.total_precio}"
     registrar(db, usuario=usuario, accion=accion, entidad="oferta",
               entidad_id=o.codigo, ip=client_ip(request), detalle=detalle)
-    if o.estado == "ganada" and settings.mcp_configurado() and o.mcp_destino_id:
-        # El traspaso viaja por el MCP (ING-COT-003 §5). Si falla, la oferta
-        # sigue ganada: queda "error_envio" para reenviar o descargar a mano.
+    if o.estado == "ganada":
         from app.conexion_control_proyecto import mcp
-        try:
-            mcp.enviar(db, o, usuario, client_ip(request))
-        except mcp.McpError:
-            pass
-        db.refresh(o)
+        if mcp.activo(db):
+            # El traspaso viaja por el MCP (ING-COT-003 §5). Si falla, la oferta
+            # sigue ganada: queda "error_envio" para reenviar o descargar a mano.
+            try:
+                mcp.enviar(db, o, usuario, client_ip(request))
+            except mcp.McpError:
+                pass
+            db.refresh(o)
     return o
+
+
+@router.delete("/{oferta_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar(oferta_id: str, request: Request, db: Session = Depends(get_db),
+             usuario: Usuario = Depends(require_roles(*ROLES_ESCRITURA))):
+    o = oferta_ops.cargar_oferta(db, oferta_id, usuario, escritura=True)
+    codigo = oferta_ops.eliminar_oferta(db, o, usuario)
+    db.commit()
+    registrar(db, usuario=usuario, accion="oferta_eliminada", entidad="oferta",
+              entidad_id=codigo, ip=client_ip(request), detalle="borrador")
+    return None
